@@ -395,11 +395,20 @@ def api_run_parser():
 # STARTUP
 # ──────────────────────────────────────────────
 
-with app.app_context():
+@app.route("/init-db")
+def route_init_db():
+    """Safety route to initialize DB manually if auto-init failed."""
     try:
         init_db()
+        return "✓ Database initialized successfully!", 200
     except Exception as e:
-        print(f"⚠ DB init skipped: {e}")
+        return f"✗ Error: {e}", 500
+
+# Run init_db every time gunicorn starts a worker
+try:
+    init_db()
+except Exception as e:
+    print(f"⚠ DB init skipped at module load: {e}")
 
 if __name__ == "__main__":
     print("🚀 http://localhost:5000  |  Admin: /admin  (admin/admin123)")
