@@ -63,89 +63,81 @@ def execute(sql, params=()):
 def init_db():
     conn = get_conn()
     try:
+        # Step 1: Create tables
         with conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS settings (
-                        key TEXT PRIMARY KEY, value TEXT NOT NULL
-                    )""")
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS products (
-                        id         SERIAL PRIMARY KEY,
-                        category   TEXT NOT NULL DEFAULT 'Parts',
-                        make       TEXT NOT NULL DEFAULT 'Universal',
-                        title      TEXT NOT NULL,
-                        description TEXT NOT NULL DEFAULT '',
-                        compat     TEXT NOT NULL DEFAULT '',
-                        base_price NUMERIC(10,2) NOT NULL DEFAULT 0,
-                        badge      TEXT,
-                        icon       TEXT NOT NULL DEFAULT '🔧',
-                        oem_no     TEXT NOT NULL DEFAULT '',
-                        active     BOOLEAN NOT NULL DEFAULT TRUE,
-                        source     TEXT NOT NULL DEFAULT 'manual',
-                        allegro_url TEXT NOT NULL DEFAULT '',
-                        created_at TIMESTAMP NOT NULL DEFAULT NOW()
-                    )""")
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS orders (
-                        id         TEXT PRIMARY KEY,
-                        seq        SERIAL,
-                        date       TEXT NOT NULL,
-                        first_name TEXT NOT NULL,
-                        last_name  TEXT NOT NULL,
-                        email      TEXT NOT NULL,
-                        phone      TEXT NOT NULL DEFAULT '',
-                        address    TEXT NOT NULL DEFAULT '',
-                        city       TEXT NOT NULL DEFAULT '',
-                        province   TEXT NOT NULL DEFAULT '',
-                        postal     TEXT NOT NULL DEFAULT '',
-                        items      JSONB NOT NULL DEFAULT '[]',
-                        total      NUMERIC(10,2) NOT NULL DEFAULT 0,
-                        status     TEXT NOT NULL DEFAULT 'New',
-                        notes      TEXT NOT NULL DEFAULT '',
-                        created_at TIMESTAMP NOT NULL DEFAULT NOW()
-                    )""")
-
-                # Default settings
+                cur.execute("""CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY, value TEXT NOT NULL)""")
+                cur.execute("""CREATE TABLE IF NOT EXISTS products (
+                    id          SERIAL PRIMARY KEY,
+                    category    TEXT NOT NULL DEFAULT 'Parts',
+                    make        TEXT NOT NULL DEFAULT 'Universal',
+                    title       TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    compat      TEXT NOT NULL DEFAULT '',
+                    base_price  NUMERIC(10,2) NOT NULL DEFAULT 0,
+                    badge       TEXT,
+                    icon        TEXT NOT NULL DEFAULT '🔧',
+                    oem_no      TEXT NOT NULL DEFAULT '',
+                    active      BOOLEAN NOT NULL DEFAULT TRUE,
+                    source      TEXT NOT NULL DEFAULT 'manual',
+                    allegro_url TEXT NOT NULL DEFAULT '',
+                    created_at  TIMESTAMP NOT NULL DEFAULT NOW())""")
+                cur.execute("""CREATE TABLE IF NOT EXISTS orders (
+                    id          TEXT PRIMARY KEY,
+                    seq         SERIAL,
+                    date        TEXT NOT NULL,
+                    first_name  TEXT NOT NULL,
+                    last_name   TEXT NOT NULL,
+                    email       TEXT NOT NULL,
+                    phone       TEXT NOT NULL DEFAULT '',
+                    address     TEXT NOT NULL DEFAULT '',
+                    city        TEXT NOT NULL DEFAULT '',
+                    province    TEXT NOT NULL DEFAULT '',
+                    postal      TEXT NOT NULL DEFAULT '',
+                    items       JSONB NOT NULL DEFAULT '[]',
+                    total       NUMERIC(10,2) NOT NULL DEFAULT 0,
+                    status      TEXT NOT NULL DEFAULT 'New',
+                    notes       TEXT NOT NULL DEFAULT '',
+                    created_at  TIMESTAMP NOT NULL DEFAULT NOW())""")
+        # Step 2: Seed settings
+        with conn:
+            with conn.cursor() as cur:
                 for k, v in {
                     "markup": "30", "pln_to_cad": "0.34",
                     "site_name": "NorthParts", "admin_user": "admin",
                     "admin_pass": hashlib.sha256(b"admin123").hexdigest(),
                 }.items():
-                    cur.execute("INSERT INTO settings(key,value) VALUES(%s,%s) ON CONFLICT(key) DO NOTHING", (k,v))
-
-                # Demo products
+                    cur.execute("INSERT INTO settings(key,value) VALUES(%s,%s) ON CONFLICT(key) DO NOTHING", (k, v))
+        # Step 3: Demo products
+        with conn:
+            with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) AS c FROM products")
                 if cur.fetchone()["c"] == 0:
                     for d in [
-                        ("Brakes","BMW","Front Brake Pad Set — BMW 3 Series E90/E92","High-performance ceramic brake pads. Low dust, low noise, excellent bite.","BMW 3 Series 2005–2012",38.50,"Best Seller","🔧","34116761281"),
-                        ("Engine","Toyota","Timing Belt Kit — Toyota Corolla 1.6 VVT-i","Complete timing belt kit with tensioner and idler pulley. OEM quality.","Toyota Corolla 2007–2014",72.00,None,"⚙️","13568-0D010"),
-                        ("Filters","Volkswagen","Oil Filter + Air Filter Combo — VW Golf Mk6 2.0 TDI","Premium filtration set. Protects engine from contaminants.","VW Golf Mk6 2008–2013",24.90,"Sale","🔩","1K0-129-620"),
-                        ("Suspension","Ford","Front Shock Absorber Set — Ford Focus Mk3","Gas-pressurized shock absorbers. Improved handling. Sold as pair.","Ford Focus 2011–2018",89.00,None,"🏎️","BM51-18K001-AB"),
-                        ("Electrical","Audi","Ignition Coil Pack — Audi A4 B8 2.0 TFSI","Direct OEM replacement coil pack. Eliminates misfires.","Audi A4 B8 2008–2016",44.20,"New","⚡","06H905115"),
-                        ("Cooling","Honda","Radiator — Honda Civic 1.8i 2006–2011","Aluminium core radiator with plastic tanks. OE spec.","Honda Civic FD 2006–2011",115.00,None,"❄️","19010-RNA-A51"),
-                        ("Brakes","Toyota","Rear Brake Disc Set — Toyota RAV4 Mk3","Ventilated rear discs, OEM dimensions. Sold as pair.","Toyota RAV4 2006–2012",58.00,None,"🔧","42431-42100"),
-                        ("Engine","BMW","Valve Cover Gasket Set — BMW N52 Engine","Full rubber gasket set. Stops oil leaks from cylinder head cover.","BMW 3/5 Series 2004–2013",32.80,None,"⚙️","11127552281"),
+                        ("Brakes","BMW","Front Brake Pad Set - BMW 3 Series E90/E92","High-performance ceramic brake pads. Low dust, low noise.","BMW 3 Series 2005-2012",38.50,"Best Seller","🔧","34116761281"),
+                        ("Engine","Toyota","Timing Belt Kit - Toyota Corolla 1.6 VVT-i","Complete timing belt kit with tensioner. OEM quality.","Toyota Corolla 2007-2014",72.00,None,"⚙️","13568-0D010"),
+                        ("Filters","Volkswagen","Oil Filter + Air Filter - VW Golf Mk6 2.0 TDI","Premium filtration set. Protects engine.","VW Golf Mk6 2008-2013",24.90,"Sale","🔩","1K0-129-620"),
+                        ("Suspension","Ford","Front Shock Absorber Set - Ford Focus Mk3","Gas-pressurized shock absorbers. Sold as pair.","Ford Focus 2011-2018",89.00,None,"🏎️","BM51-18K001-AB"),
+                        ("Electrical","Audi","Ignition Coil Pack - Audi A4 B8 2.0 TFSI","Direct OEM replacement coil. Eliminates misfires.","Audi A4 B8 2008-2016",44.20,"New","⚡","06H905115"),
+                        ("Cooling","Honda","Radiator - Honda Civic 1.8i 2006-2011","Aluminium core radiator. Direct bolt-on.","Honda Civic FD 2006-2011",115.00,None,"❄️","19010-RNA-A51"),
                     ]:
                         cur.execute("INSERT INTO products(category,make,title,description,compat,base_price,badge,icon,oem_no) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)", d)
-
-                # Demo orders
+        # Step 4: Demo orders (items as plain JSON string cast to jsonb)
+        with conn:
+            with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) AS c FROM orders")
                 if cur.fetchone()["c"] == 0:
-                    for o in [
-                        ("ORD-0001","2024-03-01","John","Smith","john.smith@gmail.com","+1 416-555-0198","142 Maple Ave","Toronto","ON","M4B 1B3",[{"title":"Front Brake Pad Set","qty":1,"price":50.05}],50.05,"Shipped","Leave at door"),
-                        ("ORD-0002","2024-03-02","Emily","Tremblay","e.tremblay@outlook.com","+1 514-555-0247","88 Rue St-Denis","Montreal","QC","H2X 3K8",[{"title":"Timing Belt Kit","qty":1,"price":93.60}],93.60,"Processing",""),
-                        ("ORD-0003","2024-03-03","Mike","Kowalski","mkowalski@yahoo.ca","+1 604-555-0312","55 Burrard St","Vancouver","BC","V6C 2R7",[{"title":"Radiator","qty":1,"price":149.50}],149.50,"New","Urgent"),
-                    ]:
-                        cur.execute("INSERT INTO orders(id,date,first_name,last_name,email,phone,address,city,province,postal,items,total,status,notes) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                                    (*o[:11], Json(o[11]), *o[12:]))
-        print("✓ Database ready")
+                    rows = [
+                        ("ORD-0001","2024-03-01","John","Smith","john.smith@gmail.com","+1 416-555-0198","142 Maple Ave","Toronto","ON","M4B 1B3",'[{"title":"Brake Pads","qty":1,"price":50.05}]',50.05,"Shipped","Leave at door"),
+                        ("ORD-0002","2024-03-02","Emily","Tremblay","e.tremblay@outlook.com","+1 514-555-0247","88 Rue St-Denis","Montreal","QC","H2X 3K8",'[{"title":"Timing Belt","qty":1,"price":93.60}]',93.60,"Processing",""),
+                        ("ORD-0003","2024-03-03","Mike","Kowalski","mkowalski@yahoo.ca","+1 604-555-0312","55 Burrard St","Vancouver","BC","V6C 2R7",'[{"title":"Radiator","qty":1,"price":149.50}]',149.50,"New","Urgent"),
+                    ]
+                    for o in rows:
+                        cur.execute("INSERT INTO orders(id,date,first_name,last_name,email,phone,address,city,province,postal,items,total,status,notes) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)", o)
+        print("✓ Database fully ready")
     finally:
         conn.close()
-
-# ──────────────────────────────────────────────
-# HELPERS
-# ──────────────────────────────────────────────
 
 def get_setting(key, default=None):
     row = query("SELECT value FROM settings WHERE key=%s", (key,), fetch="one")
