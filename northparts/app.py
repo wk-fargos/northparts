@@ -216,7 +216,8 @@ def admin_logout():
     session.clear()
     return redirect(url_for("admin_login"))
 
-@app.route("/admin"); @app.route("/admin/")
+@app.route("/admin")
+@app.route("/admin/")
 @login_required
 def admin_dashboard():
     settings = get_settings()
