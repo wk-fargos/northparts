@@ -75,7 +75,7 @@ def init_db():
                         category   TEXT NOT NULL DEFAULT 'Parts',
                         make       TEXT NOT NULL DEFAULT 'Universal',
                         title      TEXT NOT NULL,
-                        desc       TEXT NOT NULL DEFAULT '',
+                        description TEXT NOT NULL DEFAULT '',
                         compat     TEXT NOT NULL DEFAULT '',
                         base_price NUMERIC(10,2) NOT NULL DEFAULT 0,
                         badge      TEXT,
@@ -127,7 +127,7 @@ def init_db():
                         ("Brakes","Toyota","Rear Brake Disc Set — Toyota RAV4 Mk3","Ventilated rear discs, OEM dimensions. Sold as pair.","Toyota RAV4 2006–2012",58.00,None,"🔧","42431-42100"),
                         ("Engine","BMW","Valve Cover Gasket Set — BMW N52 Engine","Full rubber gasket set. Stops oil leaks from cylinder head cover.","BMW 3/5 Series 2004–2013",32.80,None,"⚙️","11127552281"),
                     ]:
-                        cur.execute("INSERT INTO products(category,make,title,desc,compat,base_price,badge,icon,oem_no) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)", d)
+                        cur.execute("INSERT INTO products(category,make,title,description,compat,base_price,badge,icon,oem_no) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)", d)
 
                 # Demo orders
                 cur.execute("SELECT COUNT(*) AS c FROM orders")
@@ -285,10 +285,10 @@ def api_products():
 @login_required
 def api_add_product():
     d = request.json
-    row = query("""INSERT INTO products(category,make,title,desc,compat,base_price,badge,icon,oem_no,active)
+    row = query("""INSERT INTO products(category,make,title,description,compat,base_price,badge,icon,oem_no,active)
                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
                 (d.get("category","Parts"), d.get("make","Universal"), d.get("title",""),
-                 d.get("desc",""), d.get("compat",""), float(d.get("basePrice",0)),
+                 d.get("description",""), d.get("compat",""), float(d.get("basePrice",0)),
                  d.get("badge") or None, d.get("icon","🔧"), d.get("oemNo",""),
                  d.get("active",True)), fetch="one")
     return jsonify({"success": True, "product": row}), 201
@@ -297,9 +297,9 @@ def api_add_product():
 @login_required
 def api_update_product(pid):
     d = request.json
-    execute("""UPDATE products SET category=%s,make=%s,title=%s,desc=%s,compat=%s,
+    execute("""UPDATE products SET category=%s,make=%s,title=%s,description=%s,compat=%s,
                base_price=%s,badge=%s,icon=%s,oem_no=%s,active=%s WHERE id=%s""",
-            (d.get("category"), d.get("make"), d.get("title"), d.get("desc"),
+            (d.get("category"), d.get("make"), d.get("title"), d.get("description"),
              d.get("compat"), float(d.get("basePrice",0)), d.get("badge") or None,
              d.get("icon","🔧"), d.get("oemNo",""), d.get("active",True), pid))
     return jsonify({"success": True})
@@ -378,7 +378,7 @@ def api_run_parser():
             parsed = json.loads(pf.read_text(encoding="utf-8"))
             added = 0
             for p in parsed.get("products",[]):
-                execute("""INSERT INTO products(category,make,title,desc,compat,base_price,icon,oem_no,source,allegro_url)
+                execute("""INSERT INTO products(category,make,title,description,compat,base_price,icon,oem_no,source,allegro_url)
                            VALUES(%s,%s,%s,%s,%s,%s,'🔧',%s,'allegro',%s)""",
                         (p.get("category","Parts"), p.get("make","Universal"),
                          p.get("title") or p.get("title_pl",""),
