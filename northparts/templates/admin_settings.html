@@ -1,0 +1,111 @@
+{% extends "admin_base.html" %}
+{% block title %}Settings — NorthParts Admin{% endblock %}
+{% block page_title %}Settings{% endblock %}
+{% set active_page = 'settings' %}
+
+{% block admin_content %}
+<div style="max-width:560px;display:flex;flex-direction:column;gap:1.5rem">
+
+  <!-- MARKUP -->
+  <div style="background:var(--card);border:1px solid var(--border);padding:2rem">
+    <h3 style="font-family:'Barlow Condensed',sans-serif;font-size:1.2rem;font-weight:700;margin-bottom:1.5rem">💰 Pricing & Markup</h3>
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem">
+      <label style="color:var(--muted);font-size:0.85rem;min-width:130px">Global Markup %</label>
+      <input type="range" id="markupRange" min="0" max="100" value="{{ settings.markup }}" step="1"
+        oninput="syncMarkup(this.value)" style="flex:1;accent-color:var(--red)">
+      <div id="markupDisplay" style="font-family:'Barlow Condensed',sans-serif;font-size:1.5rem;font-weight:800;color:var(--red);min-width:55px;text-align:right">{{ settings.markup }}%</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem">
+      <label style="color:var(--muted);font-size:0.85rem;min-width:130px">Enter manually</label>
+      <input type="number" id="markupInput" value="{{ settings.markup }}" min="0" max="500"
+        oninput="syncMarkup(this.value)"
+        style="background:var(--dark);border:1px solid var(--border);color:var(--text);padding:0.5rem 0.7rem;font-family:'Barlow',sans-serif;font-size:0.95rem;width:80px;outline:none;text-align:center">
+      <span style="color:var(--muted);font-size:0.85rem">%</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+      <label style="color:var(--muted);font-size:0.85rem;min-width:130px">PLN → CAD Rate</label>
+      <input type="number" id="plnRate" value="{{ settings.pln_to_cad }}" step="0.01" min="0.01"
+        style="background:var(--dark);border:1px solid var(--border);color:var(--text);padding:0.5rem 0.7rem;font-family:'Barlow',sans-serif;font-size:0.95rem;width:80px;outline:none;text-align:center">
+    </div>
+    <div style="background:rgba(215,43,43,0.07);border-left:3px solid var(--red);padding:0.75rem 1rem;font-size:0.83rem;color:#ccc;margin-bottom:1.5rem">
+      All product prices are calculated as: <strong>Base Price (CAD) × (1 + Markup%)</strong>
+    </div>
+
+    <!-- PREVIEW TABLE -->
+    <h4 style="font-size:0.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:0.75rem">Price Preview</h4>
+    <table style="font-size:0.85rem;width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="text-align:left;padding:0.4rem 0.5rem;color:var(--muted);font-size:0.72rem;text-transform:uppercase">Supplier (PLN)</th>
+        <th style="text-align:left;padding:0.4rem 0.5rem;color:var(--muted);font-size:0.72rem;text-transform:uppercase">Base (CAD)</th>
+        <th style="text-align:left;padding:0.4rem 0.5rem;color:var(--muted);font-size:0.72rem;text-transform:uppercase">Final (CAD)</th>
+      </tr></thead>
+      <tbody id="previewBody"></tbody>
+    </table>
+
+    <div style="display:flex;gap:0.75rem;margin-top:1.25rem">
+      <button class="btn btn-red" onclick="saveSettings()">💾 Save Changes</button>
+    </div>
+  </div>
+
+  <!-- SITE -->
+  <div style="background:var(--card);border:1px solid var(--border);padding:2rem">
+    <h3 style="font-family:'Barlow Condensed',sans-serif;font-size:1.2rem;font-weight:700;margin-bottom:1.5rem">🌐 Site Settings</h3>
+    <div style="margin-bottom:1rem">
+      <label style="display:block;font-size:0.78rem;color:var(--muted);margin-bottom:0.3rem;text-transform:uppercase;letter-spacing:0.06em">Site Name</label>
+      <input id="siteName" value="{{ settings.site_name }}"
+        style="background:var(--dark);border:1px solid var(--border);color:var(--text);padding:0.6rem 0.75rem;font-family:'Barlow',sans-serif;font-size:0.9rem;outline:none;width:300px">
+    </div>
+    <button class="btn btn-ghost" onclick="saveSite()">Save Site Name</button>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentMarkup = {{ settings.markup }};
+const pln2cad = {{ settings.pln_to_cad }};
+
+function syncMarkup(val) {
+  currentMarkup = Math.max(0, parseInt(val)||0);
+  document.getElementById('markupRange').value = Math.min(currentMarkup,100);
+  document.getElementById('markupInput').value = currentMarkup;
+  document.getElementById('markupDisplay').textContent = currentMarkup+'%';
+  renderPreview();
+}
+
+function renderPreview() {
+  const rate = parseFloat(document.getElementById('plnRate').value)||0.34;
+  const samples = [50,100,200,400,800];
+  document.getElementById('previewBody').innerHTML = samples.map(pln => {
+    const base = (pln * rate).toFixed(2);
+    const final = (pln * rate * (1 + currentMarkup/100)).toFixed(2);
+    return `<tr>
+      <td style="padding:0.35rem 0.5rem;color:var(--muted)">${pln} zł</td>
+      <td style="padding:0.35rem 0.5rem">CA$${base}</td>
+      <td style="padding:0.35rem 0.5rem;font-family:'Barlow Condensed',sans-serif;font-weight:700;color:var(--green)">CA$${final}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function saveSettings() {
+  const rate = parseFloat(document.getElementById('plnRate').value)||0.34;
+  const res = await fetch('/api/settings', {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({markup: currentMarkup, pln_to_cad: rate})
+  });
+  if ((await res.json()).success) showToast(`Saved: markup ${currentMarkup}%, rate ${rate}`);
+  else showToast('Save failed','err');
+}
+
+async function saveSite() {
+  const res = await fetch('/api/settings', {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({site_name: document.getElementById('siteName').value})
+  });
+  if ((await res.json()).success) showToast('Site name saved');
+}
+
+renderPreview();
+</script>
+{% endblock %}

@@ -1,0 +1,132 @@
+{% extends "admin_base.html" %}
+{% block title %}Dashboard — NorthParts Admin{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% set active_page = 'dashboard' %}
+
+{% block admin_content %}
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:2rem">
+  <div class="stat-card">
+    <div class="stat-label">Total Products</div>
+    <div class="stat-value">{{ stats.total_products }}</div>
+    <div class="stat-sub">active in catalog</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total Orders</div>
+    <div class="stat-value" style="color:var(--red)">{{ stats.total_orders }}</div>
+    <div class="stat-sub">all time</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">New Orders</div>
+    <div class="stat-value" style="color:var(--green)">{{ stats.new_orders }}</div>
+    <div class="stat-sub">pending action</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total Revenue</div>
+    <div class="stat-value" style="color:var(--yellow)">CA${{ "%.0f"|format(stats.revenue) }}</div>
+    <div class="stat-sub">{{ stats.markup }}% markup applied</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
+  <div style="background:var(--card);border:1px solid var(--border);padding:1.5rem">
+    <h3 style="font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:700;margin-bottom:1rem">Recent Orders</h3>
+    {% if recent_orders %}
+      {% for o in recent_orders %}
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:0.6rem 0;border-bottom:1px solid var(--border)">
+        <div>
+          <span style="font-weight:600;font-size:0.9rem">{{ o.id }}</span>
+          <span style="color:var(--muted);margin-left:0.75rem;font-size:0.82rem">{{ o.firstName }} {{ o.lastName }} — {{ o.city }}, {{ o.province }}</span>
+        </div>
+        <div style="display:flex;gap:0.75rem;align-items:center">
+          <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700">CA${{ "%.2f"|format(o.total) }}</span>
+          <span class="badge badge-{% if o.status=='New' %}red{% elif o.status=='Processing' %}yellow{% elif o.status=='Shipped' %}blue{% elif o.status=='Delivered' %}green{% else %}gray{% endif %}">{{ o.status }}</span>
+        </div>
+      </div>
+      {% endfor %}
+      <a href="/admin/orders" style="display:inline-block;margin-top:1rem;font-size:0.85rem;color:var(--red);text-decoration:none">View all orders →</a>
+    {% else %}
+      <div style="color:var(--muted);font-size:0.9rem">No orders yet.</div>
+    {% endif %}
+  </div>
+
+  <div style="background:var(--card);border:1px solid var(--border);padding:1.5rem">
+    <h3 style="font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:700;margin-bottom:1rem">Quick Actions</h3>
+    <div style="display:flex;flex-direction:column;gap:0.75rem">
+      <a href="/admin/products" class="btn btn-ghost" style="justify-content:flex-start">🔧 Manage Products</a>
+      <a href="/admin/orders?status=New" class="btn btn-ghost" style="justify-content:flex-start">📦 View New Orders</a>
+      <a href="/admin/settings" class="btn btn-ghost" style="justify-content:flex-start">💰 Change Markup</a>
+      <button class="btn btn-ghost" style="justify-content:flex-start" onclick="document.getElementById('parserModal').classList.add('open')">🔄 Run Allegro Parser</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block admin_modals %}
+<!-- PARSER MODAL -->
+<div class="modal-overlay" id="parserModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>🔄 Run Allegro Parser</h2>
+      <button style="background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer" onclick="document.getElementById('parserModal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label>Mode</label>
+        <select id="pMode">
+          <option value="demo">Demo (test data)</option>
+          <option value="scrape">Web Scraper</option>
+          <option value="api">Allegro API</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label>Search Query (Polish)</label>
+        <input id="pQuery" value="części samochodowe BMW" placeholder="e.g. klocki hamulcowe BMW">
+      </div>
+      <div class="field-row">
+        <div class="field-group">
+          <label>Pages to fetch</label>
+          <input id="pPages" type="number" value="1" min="1" max="10">
+        </div>
+        <div class="field-group">
+          <label>Markup %</label>
+          <input id="pMarkup" type="number" value="{{ settings.markup }}" min="0">
+        </div>
+      </div>
+      <div id="parserLog" style="display:none;background:var(--black);border:1px solid var(--border);padding:0.75rem;font-size:0.78rem;font-family:monospace;color:#aaa;margin-top:1rem;max-height:150px;overflow-y:auto"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="document.getElementById('parserModal').classList.remove('open')">Cancel</button>
+      <button class="btn btn-red" id="runParserBtn" onclick="runParser()">▶ Run Parser</button>
+    </div>
+  </div>
+</div>
+<script>
+async function runParser() {
+  const btn = document.getElementById('runParserBtn');
+  btn.textContent = '⏳ Running...'; btn.disabled = true;
+  const log = document.getElementById('parserLog');
+  log.style.display = 'block'; log.textContent = 'Starting parser...\n';
+  try {
+    const res = await fetch('/api/parser/run', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        mode: document.getElementById('pMode').value,
+        query: document.getElementById('pQuery').value,
+        pages: document.getElementById('pPages').value,
+        markup: document.getElementById('pMarkup').value,
+      })
+    });
+    const data = await res.json();
+    log.textContent += data.log || '';
+    if (data.success) {
+      showToast(`✓ Imported ${data.imported} products`);
+      setTimeout(() => location.reload(), 1500);
+    } else {
+      showToast('Parser error: ' + data.error, 'err');
+    }
+  } catch(e) { showToast('Request failed', 'err'); }
+  btn.textContent = '▶ Run Parser'; btn.disabled = false;
+}
+</script>
+{% endblock %}

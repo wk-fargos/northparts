@@ -1,0 +1,137 @@
+{% extends "admin_base.html" %}
+{% block title %}Orders — NorthParts Admin{% endblock %}
+{% block page_title %}Orders / CRM{% endblock %}
+{% set active_page = 'orders' %}
+
+{% block admin_content %}
+<div class="section-header">
+  <h2>Orders <span style="color:var(--muted);font-size:1rem;font-weight:400">({{ orders|length }})</span></h2>
+  <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">
+    <input type="text" class="table-search" placeholder="Search name, email, order ID..." id="orderSearch" oninput="filterOrders()">
+    <select class="table-search" id="statusFilter" onchange="filterOrders()" style="min-width:140px">
+      <option value="">All Statuses</option>
+      <option {% if status_filter=='New' %}selected{% endif %}>New</option>
+      <option {% if status_filter=='Processing' %}selected{% endif %}>Processing</option>
+      <option {% if status_filter=='Shipped' %}selected{% endif %}>Shipped</option>
+      <option {% if status_filter=='Delivered' %}selected{% endif %}>Delivered</option>
+      <option {% if status_filter=='Cancelled' %}selected{% endif %}>Cancelled</option>
+    </select>
+  </div>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Order ID</th><th>Date</th><th>Customer</th><th>Email</th><th>Province</th><th>Items</th><th>Total</th><th>Status</th><th>Actions</th></tr>
+    </thead>
+    <tbody id="ordersTbody">
+      {% for o in orders %}
+      <tr class="order-row"
+          data-search="{{ o.id|lower }} {{ o.firstName|lower }} {{ o.lastName|lower }} {{ o.email|lower }}"
+          data-status="{{ o.status }}">
+        <td><span style="font-family:monospace;font-size:0.85rem;color:var(--muted)">{{ o.id }}</span></td>
+        <td style="color:var(--muted);font-size:0.82rem">{{ o.date }}</td>
+        <td><b>{{ o.firstName }} {{ o.lastName }}</b></td>
+        <td style="font-size:0.82rem;color:var(--muted)">{{ o.email }}</td>
+        <td><span class="badge badge-gray">{{ o.province }}</span></td>
+        <td style="color:var(--muted)">{{ o.items|length }} item{% if o.items|length != 1 %}s{% endif %}</td>
+        <td><span style="font-family:'Barlow Condensed',sans-serif;font-weight:700">CA${{ "%.2f"|format(o.total) }}</span></td>
+        <td>
+          <select class="status-select" data-id="{{ o.id }}" onchange="changeStatus('{{ o.id }}', this.value)"
+              style="background:var(--dark);border:1px solid var(--border);color:var(--text);padding:0.3rem 0.5rem;font-family:'Barlow',sans-serif;font-size:0.82rem;outline:none;cursor:pointer">
+            {% for s in ['New','Processing','Shipped','Delivered','Cancelled'] %}
+            <option {% if s==o.status %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td><button class="btn btn-ghost btn-sm" onclick='openOrder({{ o|tojson }})'>👁 View</button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block admin_modals %}
+<div class="modal-overlay" id="orderModal" style="z-index:600">
+  <div class="modal" style="width:600px">
+    <div class="modal-header">
+      <h2 id="orderModalTitle">Order #</h2>
+      <button style="background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer" onclick="closeOrder()">✕</button>
+    </div>
+    <div class="modal-body" id="orderModalBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeOrder()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function filterOrders() {
+  const q = document.getElementById('orderSearch').value.toLowerCase();
+  const s = document.getElementById('statusFilter').value;
+  document.querySelectorAll('.order-row').forEach(row => {
+    const matchQ = !q || row.dataset.search.includes(q);
+    const matchS = !s || row.dataset.status === s;
+    row.style.display = (matchQ && matchS) ? '' : 'none';
+  });
+}
+
+async function changeStatus(id, status) {
+  const res = await fetch(`/api/orders/${id}/status`, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({status})
+  });
+  const data = await res.json();
+  if (data.success) {
+    showToast(`${id} → ${status}`);
+    // update row data-status
+    const row = document.querySelector(`[data-id="${id}"]`)?.closest('tr');
+    if (row) row.dataset.status = status;
+  } else showToast('Error updating status','err');
+}
+
+function openOrder(o) {
+  document.getElementById('orderModalTitle').textContent = `Order ${o.id}`;
+  document.getElementById('orderModalBody').innerHTML = `
+    <div style="background:var(--card2);border:1px solid var(--border);padding:1.25rem;margin-bottom:1rem">
+      <h4 style="font-family:'Barlow Condensed',sans-serif;font-weight:700;margin-bottom:0.75rem;color:var(--muted);font-size:0.8rem;text-transform:uppercase;letter-spacing:0.07em">Customer</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem 1.5rem">
+        <div><div style="font-size:0.72rem;color:var(--muted)">Full Name</div><div style="font-weight:600">${o.firstName} ${o.lastName}</div></div>
+        <div><div style="font-size:0.72rem;color:var(--muted)">Email</div><div>${o.email}</div></div>
+        <div><div style="font-size:0.72rem;color:var(--muted)">Phone</div><div>${o.phone||'—'}</div></div>
+        <div><div style="font-size:0.72rem;color:var(--muted)">Province</div><div>${o.province}</div></div>
+        <div style="grid-column:1/-1"><div style="font-size:0.72rem;color:var(--muted)">Address</div><div>${o.address}, ${o.city}, ${o.province} ${o.postal}</div></div>
+        ${o.notes ? `<div style="grid-column:1/-1"><div style="font-size:0.72rem;color:var(--muted)">Notes</div><div style="color:#f0c040">"${o.notes}"</div></div>` : ''}
+      </div>
+    </div>
+    <div style="background:var(--card2);border:1px solid var(--border);padding:1.25rem;margin-bottom:1rem">
+      <h4 style="font-family:'Barlow Condensed',sans-serif;font-weight:700;margin-bottom:0.75rem;color:var(--muted);font-size:0.8rem;text-transform:uppercase;letter-spacing:0.07em">Items</h4>
+      ${o.items.map(i=>`
+        <div style="display:flex;justify-content:space-between;padding:0.4rem 0;border-bottom:1px solid var(--border);font-size:0.85rem">
+          <span>${i.title}</span>
+          <span style="color:var(--muted)">×${i.qty}</span>
+          <span style="font-family:'Barlow Condensed',sans-serif;font-weight:700">CA$${i.price.toFixed(2)}</span>
+        </div>`).join('')}
+      <div style="display:flex;justify-content:space-between;padding:0.6rem 0 0;font-weight:700">
+        <span>Total</span><span></span>
+        <span style="font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;color:var(--red)">CA$${o.total.toFixed(2)}</span>
+      </div>
+    </div>
+    <div style="background:var(--card2);border:1px solid var(--border);padding:1.25rem">
+      <h4 style="font-family:'Barlow Condensed',sans-serif;font-weight:700;margin-bottom:0.75rem;color:var(--muted);font-size:0.8rem;text-transform:uppercase;letter-spacing:0.07em">Update Status</h4>
+      <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+        ${['New','Processing','Shipped','Delivered','Cancelled'].map(s=>`
+          <button class="btn btn-sm ${s===o.status?'btn-red':'btn-ghost'}"
+            onclick="changeStatus('${o.id}','${s}');closeOrder()">
+            ${s}
+          </button>`).join('')}
+      </div>
+    </div>`;
+  document.getElementById('orderModal').classList.add('open');
+}
+
+function closeOrder() { document.getElementById('orderModal').classList.remove('open'); }
+document.getElementById('orderModal').addEventListener('click', e => { if(e.target===document.getElementById('orderModal')) closeOrder(); });
+</script>
+{% endblock %}

@@ -1,0 +1,164 @@
+{% extends "admin_base.html" %}
+{% block title %}Products — NorthParts Admin{% endblock %}
+{% block page_title %}Products{% endblock %}
+{% set active_page = 'products' %}
+
+{% block admin_content %}
+<div class="section-header">
+  <h2>Products <span style="color:var(--muted);font-size:1rem;font-weight:400">({{ products|length }})</span></h2>
+  <div style="display:flex;gap:0.75rem;align-items:center">
+    <input type="text" class="table-search" placeholder="Search..." id="searchInput" oninput="filterTable()">
+    <button class="btn btn-red" onclick="openAddModal()">+ Add Product</button>
+  </div>
+</div>
+
+<div class="table-wrap">
+  <table id="productTable">
+    <thead>
+      <tr>
+        <th>Product</th><th>Category</th><th>Make</th>
+        <th>Base Price</th><th>Final Price</th><th>Status</th><th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in products %}
+      <tr class="prod-row" data-search="{{ p.title|lower }} {{ p.category|lower }} {{ p.make|lower }}">
+        <td>
+          <div style="display:flex;align-items:center;gap:0.6rem">
+            <span style="font-size:1.3rem">{{ p.icon }}</span>
+            <div>
+              <div style="font-weight:600;font-size:0.9rem">{{ p.title }}</div>
+              <div style="font-size:0.75rem;color:var(--muted)">{{ p.compat }}</div>
+              <div style="font-size:0.72rem;color:#444;font-family:monospace">{{ p.oemNo }}</div>
+            </div>
+          </div>
+        </td>
+        <td><span class="badge badge-gray">{{ p.category }}</span></td>
+        <td>{{ p.make }}</td>
+        <td style="color:var(--muted);text-decoration:line-through;font-size:0.85rem">CA${{ "%.2f"|format(p.basePrice) }}</td>
+        <td style="font-family:'Barlow Condensed',sans-serif;font-size:1.05rem;font-weight:700">CA${{ "%.2f"|format(p.finalPrice) }}</td>
+        <td>{% if p.active %}<span class="badge badge-green">Active</span>{% else %}<span class="badge badge-gray">Hidden</span>{% endif %}</td>
+        <td>
+          <div style="display:flex;gap:0.4rem">
+            <button class="btn btn-ghost btn-sm" onclick='openEditModal({{ p|tojson }})'>✏️ Edit</button>
+            <button class="btn btn-sm" style="background:rgba(215,43,43,0.15);color:#ff6b6b;border:none;cursor:pointer" onclick="deleteProduct({{ p.id }})">🗑</button>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block admin_modals %}
+<div class="modal-overlay" id="productModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="modalTitle">Add Product</h2>
+      <button style="background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editId">
+      <div class="field-row">
+        <div class="field-group"><label>Category</label>
+          <select id="fCat"><option>Brakes</option><option>Engine</option><option>Suspension</option><option>Electrical</option><option>Filters</option><option>Exhaust</option><option>Cooling</option></select>
+        </div>
+        <div class="field-group"><label>Make</label>
+          <select id="fMake"><option>BMW</option><option>Toyota</option><option>Ford</option><option>Volkswagen</option><option>Honda</option><option>Audi</option><option>Other</option></select>
+        </div>
+      </div>
+      <div class="field-group"><label>Title</label><input id="fTitle" placeholder="e.g. Front Brake Pad Set — BMW 3 Series"></div>
+      <div class="field-group"><label>Description</label><textarea id="fDesc" placeholder="Product description in English..."></textarea></div>
+      <div class="field-group"><label>Compatible With</label><input id="fCompat" placeholder="e.g. BMW 3 Series 2005–2012"></div>
+      <div class="field-row">
+        <div class="field-group"><label>Base Price (CAD)</label><input type="number" id="fPrice" step="0.01" placeholder="0.00"></div>
+        <div class="field-group"><label>OEM Number</label><input id="fOem" placeholder="e.g. 34116761281"></div>
+      </div>
+      <div class="field-row">
+        <div class="field-group"><label>Badge</label>
+          <select id="fBadge"><option value="">None</option><option>New</option><option>Sale</option><option>Best Seller</option></select>
+        </div>
+        <div class="field-group"><label>Icon</label>
+          <select id="fIcon"><option value="🔧">🔧 Wrench</option><option value="⚙️">⚙️ Gear</option><option value="⚡">⚡ Electric</option><option value="🔩">🔩 Bolt</option><option value="🏎️">🏎️ Car</option><option value="💨">💨 Exhaust</option><option value="❄️">❄️ Cooling</option></select>
+        </div>
+      </div>
+      <div class="field-group" style="display:flex;align-items:center;gap:0.75rem">
+        <input type="checkbox" id="fActive" checked style="width:auto">
+        <label style="text-transform:none;letter-spacing:0;font-size:0.9rem;color:var(--text)">Active (visible on store)</label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-red" onclick="saveProduct()">💾 Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function filterTable() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  document.querySelectorAll('.prod-row').forEach(row => {
+    row.style.display = (!q || row.dataset.search.includes(q)) ? '' : 'none';
+  });
+}
+
+function openAddModal() {
+  document.getElementById('modalTitle').textContent = 'Add Product';
+  document.getElementById('editId').value = '';
+  ['fTitle','fDesc','fCompat','fOem'].forEach(id => document.getElementById(id).value='');
+  document.getElementById('fPrice').value='';
+  document.getElementById('fBadge').value='';
+  document.getElementById('fActive').checked=true;
+  document.getElementById('productModal').classList.add('open');
+}
+
+function openEditModal(p) {
+  document.getElementById('modalTitle').textContent = 'Edit Product';
+  document.getElementById('editId').value = p.id;
+  document.getElementById('fTitle').value = p.title;
+  document.getElementById('fDesc').value = p.desc;
+  document.getElementById('fCompat').value = p.compat || '';
+  document.getElementById('fPrice').value = p.basePrice;
+  document.getElementById('fOem').value = p.oemNo || '';
+  document.getElementById('fCat').value = p.category;
+  document.getElementById('fMake').value = p.make;
+  document.getElementById('fBadge').value = p.badge || '';
+  document.getElementById('fIcon').value = p.icon;
+  document.getElementById('fActive').checked = p.active;
+  document.getElementById('productModal').classList.add('open');
+}
+
+function closeModal() { document.getElementById('productModal').classList.remove('open'); }
+
+async function saveProduct() {
+  const id = document.getElementById('editId').value;
+  const data = {
+    category: document.getElementById('fCat').value,
+    make: document.getElementById('fMake').value,
+    title: document.getElementById('fTitle').value,
+    desc: document.getElementById('fDesc').value,
+    compat: document.getElementById('fCompat').value,
+    basePrice: parseFloat(document.getElementById('fPrice').value)||0,
+    oemNo: document.getElementById('fOem').value,
+    badge: document.getElementById('fBadge').value||null,
+    icon: document.getElementById('fIcon').value,
+    active: document.getElementById('fActive').checked,
+  };
+  const url = id ? `/api/products/${id}` : '/api/products';
+  const method = id ? 'PUT' : 'POST';
+  const res = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+  const result = await res.json();
+  if (result.success) { showToast(id ? 'Product updated' : 'Product added'); setTimeout(()=>location.reload(),800); }
+  else showToast('Error saving product','err');
+}
+
+async function deleteProduct(id) {
+  if (!confirm('Delete this product?')) return;
+  const res = await fetch(`/api/products/${id}`, {method:'DELETE'});
+  if ((await res.json()).success) { showToast('Product deleted'); setTimeout(()=>location.reload(),600); }
+}
+
+document.getElementById('productModal').addEventListener('click', e => { if(e.target===document.getElementById('productModal')) closeModal(); });
+</script>
+{% endblock %}

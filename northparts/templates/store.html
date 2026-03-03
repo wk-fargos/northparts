@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+{% block title %}{{ settings.site_name }} — Auto Parts for Canada{% endblock %}
+
+{% block head %}
+<style>
+  header { background:var(--dark); border-bottom:2px solid var(--red); position:sticky; top:0; z-index:100; padding:0 2rem; display:flex; align-items:center; justify-content:space-between; height:64px; }
+  .logo { font-family:'Barlow Condensed',sans-serif; font-size:1.8rem; font-weight:800; color:var(--text); text-decoration:none; }
+  .logo span { color:var(--red); }
+  .cart-btn { background:var(--red); color:white; border:none; cursor:pointer; padding:0.5rem 1.1rem; font-family:'Barlow Condensed',sans-serif; font-size:1rem; font-weight:700; display:flex; align-items:center; gap:0.4rem; transition:background 0.2s; }
+  .cart-btn:hover { background:var(--red-dark); }
+  .cart-count { background:white; color:var(--red); border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:800; }
+  .hero { background:linear-gradient(135deg,#0D0D0D 0%,#1a0a0a 50%,#0D0D0D 100%); padding:3.5rem 2rem 3rem; position:relative; overflow:hidden; }
+  .hero::before { content:'AUTOPARTS'; position:absolute; right:-1rem; top:50%; transform:translateY(-50%); font-family:'Barlow Condensed',sans-serif; font-size:9rem; font-weight:800; color:rgba(215,43,43,0.05); pointer-events:none; }
+  .hero h1 { font-family:'Barlow Condensed',sans-serif; font-size:3.2rem; font-weight:800; line-height:1; max-width:600px; }
+  .hero h1 span { color:var(--red); }
+  .hero p { color:var(--muted); margin-top:0.8rem; font-size:1.05rem; max-width:450px; }
+  .filters { background:var(--dark); padding:1rem 2rem; display:flex; align-items:center; gap:1rem; flex-wrap:wrap; border-bottom:1px solid var(--border); }
+  .search-box { display:flex; align-items:center; background:var(--card); border:1px solid var(--border); flex:1; min-width:200px; max-width:340px; }
+  .search-box input { background:none; border:none; outline:none; color:var(--text); padding:0.55rem 0.75rem; font-family:'Barlow',sans-serif; font-size:0.95rem; flex:1; }
+  .search-box input::placeholder { color:var(--muted); }
+  .filter-select { background:var(--card); border:1px solid var(--border); color:var(--text); padding:0.55rem 0.75rem; font-family:'Barlow',sans-serif; font-size:0.9rem; outline:none; cursor:pointer; }
+  .results-count { color:var(--muted); font-size:0.9rem; margin-left:auto; }
+  .catalog { padding:2rem; display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:1.25rem; }
+  .card { background:var(--card); border:1px solid var(--border); display:flex; flex-direction:column; transition:border-color 0.2s,transform 0.2s; animation:fadeIn 0.4s ease both; }
+  .card:hover { border-color:var(--red); transform:translateY(-2px); }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+  .card-img-placeholder { width:100%; aspect-ratio:4/3; background:linear-gradient(135deg,#1a1a1a,#252525); display:flex; align-items:center; justify-content:center; font-size:3rem; color:var(--border); }
+  .card-body { padding:1rem; flex:1; display:flex; flex-direction:column; }
+  .card-cat { font-size:0.72rem; font-weight:600; color:var(--red); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:0.3rem; }
+  .card-title { font-family:'Barlow Condensed',sans-serif; font-size:1.05rem; font-weight:700; line-height:1.25; margin-bottom:0.4rem; flex:1; }
+  .card-desc { font-size:0.82rem; color:var(--muted); line-height:1.45; margin-bottom:0.75rem; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .card-compat { font-size:0.75rem; color:#555; margin-bottom:0.75rem; }
+  .card-compat span { color:#777; }
+  .card-footer { display:flex; align-items:center; justify-content:space-between; border-top:1px solid var(--border); padding-top:0.75rem; margin-top:auto; }
+  .price-old { font-size:0.78rem; color:var(--muted); text-decoration:line-through; }
+  .price-new { font-family:'Barlow Condensed',sans-serif; font-size:1.4rem; font-weight:800; }
+  .price-currency { font-size:0.9rem; font-weight:600; color:var(--muted); }
+  .add-btn { background:var(--red); color:white; border:none; cursor:pointer; padding:0.5rem 0.9rem; font-family:'Barlow Condensed',sans-serif; font-size:0.95rem; font-weight:700; transition:background 0.15s; }
+  .add-btn:hover { background:var(--red-dark); }
+  .add-btn.added { background:#1a5c1a; }
+  .prod-badge { position:absolute; top:8px; left:8px; background:var(--red); color:white; font-size:0.7rem; font-weight:700; padding:2px 7px; text-transform:uppercase; }
+  /* CART */
+  .overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:200; align-items:flex-start; justify-content:flex-end; }
+  .overlay.open { display:flex; }
+  .cart-panel { background:var(--dark); width:380px; max-width:95vw; height:100vh; overflow-y:auto; border-left:2px solid var(--red); display:flex; flex-direction:column; animation:slideIn 0.25s ease; }
+  @keyframes slideIn { from{transform:translateX(100%)} to{transform:translateX(0)} }
+  .cart-header { padding:1.25rem 1.5rem; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+  .cart-header h2 { font-family:'Barlow Condensed',sans-serif; font-size:1.4rem; font-weight:800; }
+  .cart-items { flex:1; padding:1rem 1.5rem; }
+  .cart-item { display:flex; gap:0.75rem; align-items:center; padding:0.75rem 0; border-bottom:1px solid var(--border); }
+  .cart-item-info { flex:1; }
+  .cart-item-name { font-size:0.85rem; font-weight:600; line-height:1.3; }
+  .cart-item-price { font-family:'Barlow Condensed',sans-serif; font-size:1rem; font-weight:700; color:var(--red); }
+  .remove-item { background:none; border:none; color:var(--muted); cursor:pointer; font-size:1.1rem; }
+  .remove-item:hover { color:var(--red); }
+  .cart-footer { padding:1.25rem 1.5rem; border-top:1px solid var(--border); }
+  .cart-total { display:flex; justify-content:space-between; font-family:'Barlow Condensed',sans-serif; font-size:1.3rem; font-weight:800; margin-bottom:1rem; }
+  /* CHECKOUT MODAL */
+  .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75); z-index:500; align-items:center; justify-content:center; }
+  .modal-overlay.open { display:flex; }
+  .modal { background:var(--dark); border:1px solid var(--border); border-top:3px solid var(--red); width:500px; max-width:95vw; max-height:90vh; overflow-y:auto; animation:modalIn 0.2s ease; }
+  @keyframes modalIn { from{opacity:0;transform:scale(0.96)} to{opacity:1;transform:scale(1)} }
+  .modal-header { padding:1.25rem 1.5rem; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+  .modal-header h2 { font-family:'Barlow Condensed',sans-serif; font-size:1.3rem; font-weight:800; }
+  .modal-body { padding:1.5rem; }
+  .modal-footer { padding:1rem 1.5rem; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:0.75rem; }
+  .field-group { margin-bottom:1rem; }
+  .field-group label { display:block; font-size:0.78rem; color:var(--muted); margin-bottom:0.3rem; text-transform:uppercase; letter-spacing:0.06em; }
+  .field-group input, .field-group select, .field-group textarea { width:100%; background:var(--black); border:1px solid var(--border); color:var(--text); padding:0.6rem 0.75rem; font-family:'Barlow',sans-serif; font-size:0.9rem; outline:none; }
+  .field-group input:focus, .field-group select:focus { border-color:var(--red); }
+  .field-row { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+  .checkout-btn { width:100%; background:var(--red); color:white; border:none; cursor:pointer; padding:0.85rem; font-family:'Barlow Condensed',sans-serif; font-size:1.1rem; font-weight:800; letter-spacing:0.06em; text-transform:uppercase; transition:background 0.2s; }
+  .checkout-btn:hover { background:var(--red-dark); }
+</style>
+{% endblock %}
+
+{% block body %}
+<header>
+  <a href="/" class="logo">NORTH<span>PARTS</span></a>
+  <div style="display:flex;align-items:center;gap:1.5rem">
+    <a href="/admin" class="btn btn-ghost btn-sm" style="font-size:0.78rem">⚙️ Admin</a>
+    <button class="cart-btn" onclick="openCart()">🛒 Cart <span class="cart-count" id="cartCount">0</span></button>
+  </div>
+</header>
+
+<section class="hero">
+  <h1>QUALITY AUTO PARTS<br><span>DELIVERED TO CANADA</span></h1>
+  <p>Sourced from verified European suppliers. Fast shipping across all provinces.</p>
+</section>
+
+<div class="filters">
+  <div class="search-box">
+    <input type="text" id="searchInput" placeholder="Search parts, brands, OEM numbers..." oninput="filterProducts()">
+  </div>
+  <select class="filter-select" id="catFilter" onchange="filterProducts()">
+    <option value="">All Categories</option>
+    {% set categories = products | map(attribute='category') | unique | list %}
+    {% for cat in categories %}<option>{{ cat }}</option>{% endfor %}
+  </select>
+  <select class="filter-select" id="makeFilter" onchange="filterProducts()">
+    <option value="">All Makes</option>
+    {% set makes = products | map(attribute='make') | unique | list %}
+    {% for make in makes %}<option>{{ make }}</option>{% endfor %}
+  </select>
+  <div class="results-count">Showing <span id="countDisplay">{{ products|length }}</span> parts</div>
+</div>
+
+<div class="catalog" id="catalog">
+  {% for p in products %}
+  <div class="card" style="position:relative;animation-delay:{{ loop.index0 * 0.05 }}s"
+       data-category="{{ p.category }}" data-make="{{ p.make }}"
+       data-title="{{ p.title|lower }}" data-oem="{{ p.oemNo|lower }}">
+    {% if p.badge %}<div class="prod-badge">{{ p.badge }}</div>{% endif %}
+    <div class="card-img-placeholder">{{ p.icon }}</div>
+    <div class="card-body">
+      <div class="card-cat">{{ p.category }}</div>
+      <div class="card-title">{{ p.title }}</div>
+      <div class="card-desc">{{ p.desc }}</div>
+      <div class="card-compat">Fits: <span>{{ p.compat }}</span></div>
+      <div class="card-footer">
+        <div>
+          <div class="price-old">CA${{ "%.2f"|format(p.basePrice) }}</div>
+          <div class="price-new"><span class="price-currency">CA$</span>{{ "%.2f"|format(p.finalPrice) }}</div>
+        </div>
+        <button class="add-btn" onclick="addToCart({{ p.id }}, '{{ p.title|replace("'","") }}', {{ p.finalPrice }})">+ Add</button>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- CART -->
+<div class="overlay" id="cartOverlay" onclick="if(event.target===this)closeCart()">
+  <div class="cart-panel">
+    <div class="cart-header">
+      <h2>🛒 YOUR CART</h2>
+      <button style="background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer" onclick="closeCart()">✕</button>
+    </div>
+    <div class="cart-items" id="cartItems"><div style="color:var(--muted);text-align:center;padding:3rem">Cart is empty</div></div>
+    <div class="cart-footer">
+      <div class="cart-total"><span>Total</span><span id="cartTotal">CA$0.00</span></div>
+      <button class="checkout-btn" onclick="openCheckout()">Proceed to Checkout →</button>
+    </div>
+  </div>
+</div>
+
+<!-- CHECKOUT MODAL -->
+<div class="modal-overlay" id="checkoutModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>📦 Checkout</h2>
+      <button style="background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer" onclick="closeCheckout()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-row">
+        <div class="field-group"><label>First Name</label><input id="cfirst" placeholder="John" required></div>
+        <div class="field-group"><label>Last Name</label><input id="clast" placeholder="Smith" required></div>
+      </div>
+      <div class="field-row">
+        <div class="field-group"><label>Email</label><input id="cemail" type="email" placeholder="john@email.com" required></div>
+        <div class="field-group"><label>Phone</label><input id="cphone" placeholder="+1 416-555-0000"></div>
+      </div>
+      <div class="field-group"><label>Address</label><input id="caddress" placeholder="142 Maple Ave" required></div>
+      <div class="field-row">
+        <div class="field-group"><label>City</label><input id="ccity" placeholder="Toronto" required></div>
+        <div class="field-group"><label>Province</label>
+          <select id="cprovince">
+            <option>AB</option><option>BC</option><option>MB</option><option>NB</option>
+            <option>NL</option><option>NS</option><option selected>ON</option><option>PE</option>
+            <option>QC</option><option>SK</option><option>NT</option><option>NU</option><option>YT</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-group"><label>Postal Code</label><input id="cpostal" placeholder="M4B 1B3" required></div>
+      </div>
+      <div class="field-group"><label>Notes (optional)</label><textarea id="cnotes" placeholder="Delivery instructions..." style="height:60px"></textarea></div>
+      <div style="background:rgba(215,43,43,0.07);border-left:3px solid var(--red);padding:0.75rem 1rem;font-size:0.83rem;margin-top:0.5rem">
+        Order total: <strong id="checkoutTotal" style="color:var(--red)">CA$0.00</strong>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeCheckout()">Cancel</button>
+      <button class="btn btn-red" onclick="submitOrder()">✓ Place Order</button>
+    </div>
+  </div>
+</div>
+
+<!-- ORDER SUCCESS -->
+<div class="modal-overlay" id="successModal">
+  <div class="modal" style="text-align:center;padding:2.5rem">
+    <div style="font-size:3rem;margin-bottom:1rem">✅</div>
+    <h2 style="font-family:'Barlow Condensed',sans-serif;font-size:1.8rem;font-weight:800;margin-bottom:0.5rem">Order Placed!</h2>
+    <p style="color:var(--muted);margin-bottom:1rem">Your order ID: <strong id="successOrderId" style="color:var(--text)"></strong></p>
+    <p style="color:var(--muted);font-size:0.9rem">We'll contact you at your email to confirm shipping details.</p>
+    <button class="btn btn-red" style="margin-top:1.5rem" onclick="document.getElementById('successModal').classList.remove('open')">Continue Shopping</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let cart = [];
+
+function filterProducts() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const cat = document.getElementById('catFilter').value;
+  const make = document.getElementById('makeFilter').value;
+  let visible = 0;
+  document.querySelectorAll('.card').forEach(card => {
+    const matchQ = !q || card.dataset.title.includes(q) || card.dataset.oem.includes(q);
+    const matchC = !cat || card.dataset.category === cat;
+    const matchM = !make || card.dataset.make === make;
+    card.style.display = (matchQ && matchC && matchM) ? '' : 'none';
+    if (matchQ && matchC && matchM) visible++;
+  });
+  document.getElementById('countDisplay').textContent = visible;
+}
+
+function addToCart(id, title, price) {
+  if (!cart.find(c => c.id === id)) {
+    cart.push({id, title, price});
+    document.getElementById('cartCount').textContent = cart.length;
+    renderCart();
+    showToast(title.substring(0,35) + '… added');
+    // Mark button
+    document.querySelectorAll('.add-btn').forEach(btn => {
+      if (btn.onclick && btn.onclick.toString().includes('addToCart('+id+',')) {
+        btn.textContent = '✓ Added'; btn.classList.add('added');
+      }
+    });
+  }
+}
+
+function renderCart() {
+  const el = document.getElementById('cartItems');
+  if (!cart.length) { el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:3rem">Cart is empty</div>'; document.getElementById('cartTotal').textContent='CA$0.00'; return; }
+  let total = 0;
+  el.innerHTML = cart.map(item => { total += item.price; return `
+    <div class="cart-item">
+      <div class="cart-item-info">
+        <div class="cart-item-name">${item.title.substring(0,45)}</div>
+        <div class="cart-item-price">CA$${item.price.toFixed(2)}</div>
+      </div>
+      <button class="remove-item" onclick="removeFromCart(${item.id})">✕</button>
+    </div>`; }).join('');
+  document.getElementById('cartTotal').textContent = 'CA$'+total.toFixed(2);
+  document.getElementById('checkoutTotal').textContent = 'CA$'+total.toFixed(2);
+}
+
+function removeFromCart(id) {
+  cart = cart.filter(c => c.id !== id);
+  document.getElementById('cartCount').textContent = cart.length;
+  renderCart();
+}
+
+function openCart() { document.getElementById('cartOverlay').classList.add('open'); }
+function closeCart() { document.getElementById('cartOverlay').classList.remove('open'); }
+function openCheckout() { closeCart(); document.getElementById('checkoutModal').classList.add('open'); }
+function closeCheckout() { document.getElementById('checkoutModal').classList.remove('open'); }
+
+async function submitOrder() {
+  const firstName = document.getElementById('cfirst').value.trim();
+  const email = document.getElementById('cemail').value.trim();
+  if (!firstName || !email) { showToast('Please fill required fields', 'err'); return; }
+  if (!cart.length) { showToast('Cart is empty', 'err'); return; }
+
+  const total = cart.reduce((s, c) => s + c.price, 0);
+  const payload = {
+    firstName, email,
+    lastName: document.getElementById('clast').value,
+    phone: document.getElementById('cphone').value,
+    address: document.getElementById('caddress').value,
+    city: document.getElementById('ccity').value,
+    province: document.getElementById('cprovince').value,
+    postal: document.getElementById('cpostal').value,
+    notes: document.getElementById('cnotes').value,
+    items: cart.map(c => ({title: c.title, qty: 1, price: c.price})),
+    total: Math.round(total * 100) / 100,
+  };
+
+  try {
+    const res = await fetch('/api/orders', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) });
+    const data = await res.json();
+    if (data.success) {
+      cart = [];
+      document.getElementById('cartCount').textContent = '0';
+      closeCheckout();
+      document.getElementById('successOrderId').textContent = data.order_id;
+      document.getElementById('successModal').classList.add('open');
+    } else {
+      showToast('Error placing order', 'err');
+    }
+  } catch(e) {
+    showToast('Server error', 'err');
+  }
+}
+</script>
+{% endblock %}

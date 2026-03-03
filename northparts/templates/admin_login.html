@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Admin Login — NorthParts{% endblock %}
+{% block body %}
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center">
+  <div style="background:var(--card);border:1px solid var(--border);border-top:3px solid var(--red);padding:2.5rem;width:340px">
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:1.8rem;font-weight:800;margin-bottom:0.3rem">NORTH<span style="color:var(--red)">PARTS</span></div>
+    <div style="color:var(--muted);font-size:0.85rem;margin-bottom:1.8rem">Admin Panel — Sign in to continue</div>
+    {% if error %}<div style="background:rgba(215,43,43,0.15);border-left:3px solid var(--red);padding:0.6rem 1rem;font-size:0.85rem;margin-bottom:1rem;color:#ff8080">{{ error }}</div>{% endif %}
+    <form method="POST" action="/admin/login">
+      <div style="margin-bottom:1rem">
+        <label style="display:block;font-size:0.78rem;color:var(--muted);margin-bottom:0.35rem;text-transform:uppercase;letter-spacing:0.06em">Username</label>
+        <input name="username" type="text" placeholder="admin" value="admin" style="width:100%;background:var(--dark);border:1px solid var(--border);color:var(--text);padding:0.65rem 0.8rem;font-family:'Barlow',sans-serif;font-size:0.95rem;outline:none">
+      </div>
+      <div style="margin-bottom:1rem">
+        <label style="display:block;font-size:0.78rem;color:var(--muted);margin-bottom:0.35rem;text-transform:uppercase;letter-spacing:0.06em">Password</label>
+        <input name="password" type="password" placeholder="••••••••" style="width:100%;background:var(--dark);border:1px solid var(--border);color:var(--text);padding:0.65rem 0.8rem;font-family:'Barlow',sans-serif;font-size:0.95rem;outline:none">
+      </div>
+      <button type="submit" class="btn btn-red" style="width:100%;justify-content:center;padding:0.75rem;font-size:1.1rem">SIGN IN →</button>
+    </form>
+    <div style="margin-top:1rem;font-size:0.75rem;color:var(--muted)">Demo: admin / admin123</div>
+  </div>
+</div>
+{% endblock %}

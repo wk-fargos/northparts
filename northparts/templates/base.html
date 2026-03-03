@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}NorthParts{% endblock %}</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --red: #D72B2B; --red-dark: #A81E1E;
+    --black: #0D0D0D; --dark: #111; --card: #181818; --card2: #1E1E1E;
+    --border: #272727; --text: #F0F0F0; --muted: #777;
+    --green: #28a745; --yellow: #d4a017; --blue: #1a6fa8;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--black); color:var(--text); font-family:'Barlow',sans-serif; min-height:100vh; }
+  .btn { border:none; cursor:pointer; padding:0.5rem 1.1rem; font-family:'Barlow Condensed',sans-serif; font-size:0.95rem; font-weight:700; letter-spacing:0.04em; transition:all 0.15s; display:inline-flex; align-items:center; gap:0.4rem; text-decoration:none; }
+  .btn-red { background:var(--red); color:white; }
+  .btn-red:hover { background:var(--red-dark); }
+  .btn-ghost { background:transparent; color:var(--muted); border:1px solid var(--border); }
+  .btn-ghost:hover { border-color:var(--text); color:var(--text); }
+  .btn-sm { padding:0.3rem 0.7rem; font-size:0.82rem; }
+  .badge { display:inline-block; padding:2px 8px; font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; }
+  .badge-red { background:rgba(215,43,43,0.2); color:#ff6b6b; }
+  .badge-green { background:rgba(40,167,69,0.2); color:#5dd87a; }
+  .badge-yellow { background:rgba(212,160,23,0.2); color:#f0c040; }
+  .badge-blue { background:rgba(26,111,168,0.2); color:#5aabf0; }
+  .badge-gray { background:rgba(255,255,255,0.07); color:var(--muted); }
+  .toast { position:fixed; bottom:1.5rem; right:1.5rem; background:#1a5c1a; color:white; padding:0.65rem 1.4rem; font-family:'Barlow Condensed',sans-serif; font-size:1rem; font-weight:700; opacity:0; transition:opacity 0.3s; pointer-events:none; z-index:9999; }
+  .toast.show { opacity:1; }
+  .toast.err { background:#7a1a1a; }
+</style>
+{% block head %}{% endblock %}
+</head>
+<body>
+{% block body %}{% endblock %}
+<div class="toast" id="toast"></div>
+<script>
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = (type ? '✕ ' : '✓ ') + msg;
+  t.className = 'toast show' + (type ? ' ' + type : '');
+  setTimeout(() => t.className = 'toast', 2800);
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
