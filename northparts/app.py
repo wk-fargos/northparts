@@ -14,7 +14,7 @@ from functools import wraps
 from flask import (Flask, render_template, request, jsonify,
                    session, redirect, url_for, send_from_directory)
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, Json
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "northparts-dev-key-change-in-prod")
@@ -138,7 +138,7 @@ def init_db():
                         ("ORD-0003","2024-03-03","Mike","Kowalski","mkowalski@yahoo.ca","+1 604-555-0312","55 Burrard St","Vancouver","BC","V6C 2R7",[{"title":"Radiator","qty":1,"price":149.50}],149.50,"New","Urgent"),
                     ]:
                         cur.execute("INSERT INTO orders(id,date,first_name,last_name,email,phone,address,city,province,postal,items,total,status,notes) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                                    (*o[:11], json.dumps(o[11]), *o[12:]))
+                                    (*o[:11], Json(o[11]), *o[12:]))
         print("✓ Database ready")
     finally:
         conn.close()
@@ -324,7 +324,7 @@ def api_create_order():
              d.get("firstName",""), d.get("lastName",""), d.get("email",""),
              d.get("phone",""), d.get("address",""), d.get("city",""),
              d.get("province",""), d.get("postal",""),
-             json.dumps(d.get("items",[])), float(d.get("total",0)), d.get("notes","")))
+             Json(d.get("items",[])), float(d.get("total",0)), d.get("notes","")))
     return jsonify({"success": True, "order_id": oid}), 201
 
 @app.route("/api/orders/<order_id>/status", methods=["PUT"])
