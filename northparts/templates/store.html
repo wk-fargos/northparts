@@ -109,24 +109,69 @@
   {% for p in products %}
   <div class="card" style="position:relative;animation-delay:{{ loop.index0 * 0.05 }}s"
        data-category="{{ p.category }}" data-make="{{ p.make }}"
-       data-title="{{ p.title|lower }}" data-oem="{{ p.oemNo|lower }}">
+       data-title="{{ p.title|lower }}" data-oem="{{ (p.oem_no or '')|lower }}">
     {% if p.badge %}<div class="prod-badge">{{ p.badge }}</div>{% endif %}
-    <div class="card-img-placeholder">{{ p.icon }}</div>
+    {% if p.source == 'allegro' %}<div style="position:absolute;top:8px;right:8px;background:rgba(255,130,0,0.15);color:#ff8c00;font-size:0.65rem;font-weight:700;padding:2px 6px;text-transform:uppercase">Allegro</div>{% endif %}
+
+    <div class="card-img-placeholder" onclick="openProduct({{ p.id }})" style="cursor:pointer">
+      {% if p.image_url %}
+        <img src="{{ p.image_url }}" alt="{{ p.title }}"
+             style="width:100%;height:100%;object-fit:cover"
+             onerror="this.parentElement.innerHTML='{{ p.icon }}'">
+      {% elif p.image_local %}
+        <img src="{{ p.image_local }}" alt="{{ p.title }}"
+             style="width:100%;height:100%;object-fit:cover"
+             onerror="this.parentElement.innerHTML='{{ p.icon }}'">
+      {% else %}
+        {{ p.icon }}
+      {% endif %}
+    </div>
+
     <div class="card-body">
-      <div class="card-cat">{{ p.category }}</div>
-      <div class="card-title">{{ p.title }}</div>
+      <div class="card-cat">{{ p.category }} {% if p.make != 'Universal' %}<span style="color:var(--muted)">· {{ p.make }}</span>{% endif %}</div>
+      <div class="card-title" onclick="openProduct({{ p.id }})" style="cursor:pointer">{{ p.title }}</div>
       <div class="card-desc">{{ p.description }}</div>
-      <div class="card-compat">Fits: <span>{{ p.compat }}</span></div>
+      {% if p.compat %}<div class="card-compat">Fits: <span>{{ p.compat }}</span></div>{% endif %}
+      {% if p.oem_no %}<div style="font-size:0.72rem;color:#444;font-family:monospace;margin-bottom:0.5rem">OEM: {{ p.oem_no }}</div>{% endif %}
       <div class="card-footer">
         <div>
           <div class="price-old">CA${{ "%.2f"|format(p.basePrice) }}</div>
           <div class="price-new"><span class="price-currency">CA$</span>{{ "%.2f"|format(p.finalPrice) }}</div>
         </div>
-        <button class="add-btn" onclick="addToCart({{ p.id }}, '{{ p.title|replace("'","") }}', {{ p.finalPrice }})">+ Add</button>
+        <button class="add-btn" onclick="addToCart({{ p.id }}, '{{ p.title|replace("'","\'") }}', {{ p.finalPrice }})">+ Add</button>
       </div>
     </div>
   </div>
   {% endfor %}
+</div>
+
+<!-- PRODUCT DETAIL MODAL -->
+<div class="modal-overlay" id="productModal" onclick="if(event.target===this)closeProduct()">
+  <div class="modal" style="width:680px;max-width:96vw">
+    <div class="modal-header">
+      <h2 id="pmTitle" style="font-size:1.1rem;line-height:1.3;max-width:90%"></h2>
+      <button style="background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer;flex-shrink:0" onclick="closeProduct()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:0">
+      <div style="display:grid;grid-template-columns:1fr 1fr;min-height:300px">
+        <div id="pmImg" style="background:#111;display:flex;align-items:center;justify-content:center;font-size:5rem;min-height:280px"></div>
+        <div style="padding:1.5rem;display:flex;flex-direction:column;gap:0.75rem">
+          <div id="pmCat" style="font-size:0.75rem;color:var(--red);font-weight:700;text-transform:uppercase;letter-spacing:0.07em"></div>
+          <div id="pmDesc" style="font-size:0.88rem;color:#ccc;line-height:1.6;flex:1"></div>
+          <div id="pmCompat" style="font-size:0.8rem;color:var(--muted)"></div>
+          <div id="pmOem" style="font-size:0.75rem;font-family:monospace;color:#555"></div>
+          <div style="border-top:1px solid var(--border);padding-top:0.75rem">
+            <div id="pmPriceOld" style="font-size:0.82rem;color:var(--muted);text-decoration:line-through"></div>
+            <div id="pmPrice" style="font-family:'Barlow Condensed',sans-serif;font-size:2rem;font-weight:800"></div>
+          </div>
+          <div style="display:flex;gap:0.75rem">
+            <button id="pmAddBtn" class="btn btn-red" style="flex:1;justify-content:center;padding:0.75rem">+ Add to Cart</button>
+            <a id="pmAllegro" href="#" target="_blank" class="btn btn-ghost" style="display:none;font-size:0.8rem">View on Allegro ↗</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- CART -->
@@ -253,6 +298,48 @@ function removeFromCart(id) {
   document.getElementById('cartCount').textContent = cart.length;
   renderCart();
 }
+
+// ── PRODUCT DETAIL MODAL ──
+const PRODUCTS_DATA = {{ products | tojson }};
+
+function openProduct(id) {
+  const p = PRODUCTS_DATA.find(x => x.id === id);
+  if (!p) return;
+
+  document.getElementById('pmTitle').textContent   = p.title;
+  document.getElementById('pmCat').textContent     = p.category + (p.make !== 'Universal' ? ' · ' + p.make : '');
+  document.getElementById('pmDesc').textContent    = p.description || '—';
+  document.getElementById('pmCompat').textContent  = p.compat ? 'Fits: ' + p.compat : '';
+  document.getElementById('pmOem').textContent     = p.oem_no ? 'OEM: ' + p.oem_no : '';
+  document.getElementById('pmPriceOld').textContent = 'CA$' + parseFloat(p.base_price).toFixed(2);
+  document.getElementById('pmPrice').textContent   = 'CA$' + parseFloat(p.finalPrice).toFixed(2);
+  document.getElementById('pmPrice').style.color   = 'var(--red)';
+
+  // Image
+  const imgEl = document.getElementById('pmImg');
+  const imgSrc = p.image_url || p.image_local;
+  if (imgSrc) {
+    imgEl.innerHTML = `<img src="${imgSrc}" style="width:100%;height:100%;object-fit:cover" onerror="this.parentElement.innerHTML='${p.icon||'🔧'}'">`;
+  } else {
+    imgEl.innerHTML = `<span style="font-size:5rem">${p.icon || '🔧'}</span>`;
+  }
+
+  // Add to cart button
+  const addBtn = document.getElementById('pmAddBtn');
+  addBtn.onclick = () => { addToCart(p.id, p.title, parseFloat(p.finalPrice)); closeProduct(); };
+
+  // Allegro link
+  const allegroBtn = document.getElementById('pmAllegro');
+  if (p.allegro_url) {
+    allegroBtn.href = p.allegro_url;
+    allegroBtn.style.display = 'flex';
+  } else {
+    allegroBtn.style.display = 'none';
+  }
+
+  document.getElementById('productModal').classList.add('open');
+}
+function closeProduct() { document.getElementById('productModal').classList.remove('open'); }
 
 function openCart() { document.getElementById('cartOverlay').classList.add('open'); }
 function closeCart() { document.getElementById('cartOverlay').classList.remove('open'); }
