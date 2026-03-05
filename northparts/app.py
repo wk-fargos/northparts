@@ -82,6 +82,8 @@ def init_db():
                     active      BOOLEAN NOT NULL DEFAULT TRUE,
                     source      TEXT NOT NULL DEFAULT 'manual',
                     allegro_url TEXT NOT NULL DEFAULT '',
+                    image_url   TEXT NOT NULL DEFAULT '',
+                    image_local TEXT NOT NULL DEFAULT '',
                     created_at  TIMESTAMP NOT NULL DEFAULT NOW())""")
                 cur.execute("""CREATE TABLE IF NOT EXISTS orders (
                     id          TEXT PRIMARY KEY,
@@ -382,6 +384,189 @@ def api_run_parser():
         return jsonify({"success":False,"error":"Parser output not found","log":result.stderr[-500:]})
     except Exception as e:
         return jsonify({"success":False,"error":str(e)})
+
+# ──────────────────────────────────────────────
+# ALLEGRO API INTEGRATION (Authorization Code Flow)
+# ──────────────────────────────────────────────
+
+ALLEGRO_CLIENT_ID     = os.environ.get("ALLEGRO_CLIENT_ID", "")
+ALLEGRO_CLIENT_SECRET = os.environ.get("ALLEGRO_CLIENT_SECRET", "")
+ALLEGRO_API           = "https://api.allegro.pl"
+ALLEGRO_AUTH          = "https://allegro.pl"
+ALLEGRO_REDIRECT      = "https://northparts.onrender.com/allegro/callback"
+
+SEARCH_QUERIES_BMW_AUDI = [
+    "części samochodowe BMW",
+    "części samochodowe Audi",
+    "klocki hamulcowe BMW",
+    "klocki hamulcowe Audi",
+    "filtr oleju BMW",
+    "amortyzator Audi",
+    "rozrząd BMW",
+    "zawieszenie Audi",
+]
+
+def allegro_headers(token):
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.allegro.public.v1+json",
+    }
+
+def allegro_save_token(data):
+    import time
+    expires_at = time.time() + data.get("expires_in", 43200)
+    for k, v in [("access_token", data.get("access_token","")),
+                 ("refresh_token", data.get("refresh_token","")),
+                 ("expires_at", str(expires_at))]:
+        execute("INSERT INTO settings(key,value) VALUES(%s,%s) ON CONFLICT(key) DO UPDATE SET value=%s",
+                (f"allegro_{k}", v, v))
+
+def allegro_refresh():
+    refresh_tok = get_setting("allegro_refresh_token")
+    if not refresh_tok:
+        return None
+    resp = requests.post(f"{ALLEGRO_AUTH}/auth/oauth/token",
+                         auth=(ALLEGRO_CLIENT_ID, ALLEGRO_CLIENT_SECRET),
+                         data={"grant_type":"refresh_token","refresh_token":refresh_tok})
+    if resp.status_code == 200:
+        allegro_save_token(resp.json())
+        return resp.json()["access_token"]
+    return None
+
+def allegro_valid_token():
+    import time
+    expires_at = float(get_setting("allegro_expires_at", 0) or 0)
+    if expires_at > time.time() + 120:
+        return get_setting("allegro_access_token")
+    return allegro_refresh()
+
+@app.route("/allegro/connect")
+@login_required
+def allegro_connect():
+    """Redirect admin to Allegro authorization page."""
+    import urllib.parse, secrets
+    state = secrets.token_hex(16)
+    execute("INSERT INTO settings(key,value) VALUES('allegro_oauth_state',%s) ON CONFLICT(key) DO UPDATE SET value=%s",
+            (state, state))
+    params = urllib.parse.urlencode({
+        "response_type": "code",
+        "client_id":     ALLEGRO_CLIENT_ID,
+        "redirect_uri":  ALLEGRO_REDIRECT,
+        "state":         state,
+    })
+    return redirect(f"{ALLEGRO_AUTH}/auth/oauth/authorize?{params}")
+
+@app.route("/allegro/callback")
+def allegro_callback():
+    """Handle OAuth2 callback from Allegro."""
+    code  = request.args.get("code")
+    state = request.args.get("state")
+    saved_state = get_setting("allegro_oauth_state")
+
+    if not code:
+        return "Error: no code returned by Allegro", 400
+    if state != saved_state:
+        return "Error: state mismatch (CSRF check failed)", 400
+
+    resp = requests.post(f"{ALLEGRO_AUTH}/auth/oauth/token",
+                         auth=(ALLEGRO_CLIENT_ID, ALLEGRO_CLIENT_SECRET),
+                         data={"grant_type":"authorization_code",
+                               "code": code,
+                               "redirect_uri": ALLEGRO_REDIRECT})
+    if resp.status_code != 200:
+        return f"Error getting token: {resp.text}", 400
+
+    allegro_save_token(resp.json())
+    return redirect("/admin/settings?allegro=connected")
+
+@app.route("/allegro/status")
+@login_required
+def allegro_status():
+    import time
+    token = get_setting("allegro_access_token")
+    expires_at = float(get_setting("allegro_expires_at", 0) or 0)
+    connected = bool(token) and expires_at > time.time()
+    return jsonify({"connected": connected, "expires_at": expires_at})
+
+@app.route("/api/allegro/import", methods=["POST"])
+@login_required
+def api_allegro_import():
+    """Search Allegro and import products into DB."""
+    token = allegro_valid_token()
+    if not token:
+        return jsonify({"success": False, "error": "Not authorized with Allegro. Go to Admin → Settings → Connect Allegro."}), 401
+
+    d       = request.json or {}
+    markup  = float(d.get("markup", get_setting("markup", 30)))
+    pln_cad = float(d.get("pln_to_cad", get_setting("pln_to_cad", 0.34)))
+    queries = d.get("queries", SEARCH_QUERIES_BMW_AUDI)
+    limit   = int(d.get("limit", 10))
+
+    added   = 0
+    skipped = 0
+    errors  = []
+
+    for query in queries:
+        try:
+            resp = requests.get(f"{ALLEGRO_API}/offers/listing",
+                                headers=allegro_headers(token),
+                                params={"phrase": query, "limit": limit,
+                                        "category.id": "4029", "sort": "-popularity"},
+                                timeout=15)
+            if resp.status_code != 200:
+                errors.append(f"{query}: HTTP {resp.status_code}")
+                continue
+
+            items = resp.json().get("items", {}).get("regular", [])
+            for offer in items:
+                oid = str(offer.get("id",""))
+                # Skip if already imported
+                existing = query("SELECT id FROM products WHERE oem_no=%s AND source='allegro'", (oid,), fetch="one")
+                if existing:
+                    skipped += 1
+                    continue
+
+                title_pl  = offer.get("name","")
+                price_pln = float(offer.get("sellingMode",{}).get("price",{}).get("amount",0))
+                images    = offer.get("images",[])
+                image_url = images[0].get("url","") if images else ""
+
+                # Detect make & category
+                make = "Universal"
+                for brand in ["BMW","Audi","Toyota","Ford","Volkswagen","Honda","Mercedes"]:
+                    if brand.lower() in title_pl.lower():
+                        make = brand; break
+
+                category = "Parts"
+                for key, cat in [("hamul","Brakes"),("tarcz","Brakes"),("klocki","Brakes"),
+                                  ("silnik","Engine"),("rozrząd","Engine"),("uszczelk","Engine"),
+                                  ("filtr","Filters"),("zawieszeni","Suspension"),("amortyzator","Suspension"),
+                                  ("elektryczn","Electrical"),("cewk","Electrical"),
+                                  ("chłodnic","Cooling"),("wydech","Exhaust")]:
+                    if key in title_pl.lower():
+                        category = cat; break
+
+                # Translate title
+                title_en = title_pl
+                try:
+                    from deep_translator import GoogleTranslator
+                    title_en = GoogleTranslator(source="pl", target="en").translate(title_pl[:300])
+                except Exception:
+                    pass
+
+                base_cad = round(price_pln * pln_cad, 2)
+
+                execute("""INSERT INTO products
+                           (category,make,title,description,compat,base_price,icon,oem_no,active,source,allegro_url,image_url)
+                           VALUES(%s,%s,%s,%s,%s,%s,'🔧',%s,TRUE,'allegro',%s,%s)""",
+                        (category, make, title_en, "", "", base_cad, oid,
+                         f"https://allegro.pl/oferta/{oid}", image_url))
+                added += 1
+
+        except Exception as e:
+            errors.append(f"{query}: {e}")
+
+    return jsonify({"success": True, "added": added, "skipped": skipped, "errors": errors})
 
 # ──────────────────────────────────────────────
 # STARTUP
