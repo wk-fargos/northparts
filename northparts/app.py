@@ -505,59 +505,75 @@ def api_allegro_import():
     """Search Allegro and import products into DB."""
     token = allegro_valid_token()
     if not token:
-        return jsonify({"success": False, "error": "Not authorized with Allegro. Go to Admin → Settings → Connect Allegro."}), 401
+        return jsonify({"success": False, "error": "Not authorized with Allegro."}), 401
 
     d       = request.json or {}
-    markup  = float(d.get("markup", get_setting("markup", 30)))
-    pln_cad = float(d.get("pln_to_cad", get_setting("pln_to_cad", 0.34)))
-    queries = d.get("queries", SEARCH_QUERIES_BMW_AUDI)
+    pln_cad = float(get_setting("pln_to_cad", 0.34))
     limit   = int(d.get("limit", 10))
 
     added   = 0
     skipped = 0
     errors  = []
 
-    for query in queries:
+    for query_str in SEARCH_QUERIES_BMW_AUDI:
         try:
-            resp = requests.get(f"{ALLEGRO_API}/offers/listing",
-                                headers=allegro_headers(token),
-                                params={"phrase": query, "limit": limit,
-                                        "category.id": "4029", "sort": "-popularity"},
-                                timeout=15)
+            # Use /offers/listing — public search endpoint
+            resp = requests.get(
+                f"{ALLEGRO_API}/offers/listing",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.allegro.public.v1+json",
+                },
+                params={
+                    "phrase":      query_str,
+                    "limit":       limit,
+                    "sort":        "-relevance",
+                },
+                timeout=20,
+            )
+
+            if resp.status_code == 403:
+                # Try without token — some endpoints work as client credentials
+                errors.append(f"{query_str}: HTTP 403 — missing scope allegro:api:sale:offers:read")
+                continue
             if resp.status_code != 200:
-                errors.append(f"{query}: HTTP {resp.status_code}")
+                errors.append(f"{query_str}: HTTP {resp.status_code} — {resp.text[:100]}")
                 continue
 
-            items = resp.json().get("items", {}).get("regular", [])
+            data  = resp.json()
+            items = data.get("items", {}).get("regular", [])
+
             for offer in items:
-                oid = str(offer.get("id",""))
-                # Skip if already imported
-                existing = query("SELECT id FROM products WHERE oem_no=%s AND source='allegro'", (oid,), fetch="one")
+                oid       = str(offer.get("id", ""))
+                title_pl  = offer.get("name", "")
+                price_pln = float((offer.get("sellingMode") or {}).get("price", {}).get("amount", 0))
+                images    = offer.get("images", [])
+                image_url = images[0].get("url", "") if images else ""
+
+                # Skip duplicates
+                existing = query("SELECT id FROM products WHERE oem_no=%s AND source='allegro'",
+                                 (oid,), fetch="one")
                 if existing:
                     skipped += 1
                     continue
 
-                title_pl  = offer.get("name","")
-                price_pln = float(offer.get("sellingMode",{}).get("price",{}).get("amount",0))
-                images    = offer.get("images",[])
-                image_url = images[0].get("url","") if images else ""
-
-                # Detect make & category
+                # Detect make
                 make = "Universal"
-                for brand in ["BMW","Audi","Toyota","Ford","Volkswagen","Honda","Mercedes"]:
+                for brand in ["BMW","Audi","Toyota","Ford","Volkswagen","Honda","Mercedes","Skoda"]:
                     if brand.lower() in title_pl.lower():
                         make = brand; break
 
+                # Detect category
                 category = "Parts"
                 for key, cat in [("hamul","Brakes"),("tarcz","Brakes"),("klocki","Brakes"),
-                                  ("silnik","Engine"),("rozrząd","Engine"),("uszczelk","Engine"),
-                                  ("filtr","Filters"),("zawieszeni","Suspension"),("amortyzator","Suspension"),
+                                  ("silnik","Engine"),("rozrz","Engine"),("uszczelk","Engine"),
+                                  ("filtr","Filters"),("zawieszeni","Suspension"),("amortyz","Suspension"),
                                   ("elektryczn","Electrical"),("cewk","Electrical"),
-                                  ("chłodnic","Cooling"),("wydech","Exhaust")]:
-                    if key in title_pl.lower():
+                                  ("chlodnic","Cooling"),("wydech","Exhaust")]:
+                    if key in title_pl.lower().replace("ą","a").replace("ę","e").replace("ó","o"):
                         category = cat; break
 
-                # Translate title
+                # Translate
                 title_en = title_pl
                 try:
                     from deep_translator import GoogleTranslator
@@ -568,14 +584,15 @@ def api_allegro_import():
                 base_cad = round(price_pln * pln_cad, 2)
 
                 execute("""INSERT INTO products
-                           (category,make,title,description,compat,base_price,icon,oem_no,active,source,allegro_url,image_url)
-                           VALUES(%s,%s,%s,%s,%s,%s,'🔧',%s,TRUE,'allegro',%s,%s)""",
+                           (category,make,title,description,compat,base_price,icon,oem_no,
+                            active,source,allegro_url,image_url,image_local)
+                           VALUES(%s,%s,%s,%s,%s,%s,'🔧',%s,TRUE,'allegro',%s,%s,'')""",
                         (category, make, title_en, "", "", base_cad, oid,
                          f"https://allegro.pl/oferta/{oid}", image_url))
                 added += 1
 
         except Exception as e:
-            errors.append(f"{query}: {e}")
+            errors.append(f"{query_str}: {e}")
 
     return jsonify({"success": True, "added": added, "skipped": skipped, "errors": errors})
 
