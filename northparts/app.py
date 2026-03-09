@@ -395,16 +395,7 @@ ALLEGRO_API           = "https://api.allegro.pl"
 ALLEGRO_AUTH          = "https://allegro.pl"
 ALLEGRO_REDIRECT      = "https://northparts.onrender.com/allegro/callback"
 
-SEARCH_QUERIES_BMW_AUDI = [
-    "części samochodowe BMW",
-    "części samochodowe Audi",
-    "klocki hamulcowe BMW",
-    "klocki hamulcowe Audi",
-    "filtr oleju BMW",
-    "amortyzator Audi",
-    "rozrząd BMW",
-    "zawieszenie Audi",
-]
+SEARCH_QUERIES_BMW_AUDI = []  # unused, kept for compatibility
 
 def allegro_headers(token):
     return {
@@ -502,52 +493,68 @@ def allegro_status():
 @app.route("/api/allegro/import", methods=["POST"])
 @login_required
 def api_allegro_import():
-    """Search Allegro and import products into DB."""
-    token = allegro_valid_token()
-    if not token:
-        return jsonify({"success": False, "error": "Not authorized with Allegro."}), 401
-
+    """Search public Allegro listings using client_credentials token."""
     d       = request.json or {}
     pln_cad = float(get_setting("pln_to_cad", 0.34))
     limit   = int(d.get("limit", 10))
-
     added   = 0
     skipped = 0
     errors  = []
 
-    for query_str in SEARCH_QUERIES_BMW_AUDI:
+    # Step 1: Get client_credentials token (works for public /offers/listing)
+    try:
+        tok_resp = requests.post(
+            f"{ALLEGRO_AUTH}/auth/oauth/token",
+            auth=(ALLEGRO_CLIENT_ID, ALLEGRO_CLIENT_SECRET),
+            data={"grant_type": "client_credentials"},
+            timeout=15,
+        )
+        if tok_resp.status_code != 200:
+            return jsonify({"success": False,
+                            "error": f"Token error {tok_resp.status_code}: {tok_resp.text[:200]}"}), 400
+        token = tok_resp.json()["access_token"]
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Token exception: {e}"}), 500
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.allegro.public.v1+json",
+    }
+
+    # Allegro category 4029 = Części samochodowe (auto parts)
+    # Search queries for BMW and Audi parts
+    searches = [
+        {"phrase": "części samochodowe BMW",  "category.id": "4029"},
+        {"phrase": "części samochodowe Audi", "category.id": "4029"},
+        {"phrase": "klocki hamulcowe BMW",    "category.id": "4029"},
+        {"phrase": "klocki hamulcowe Audi",   "category.id": "4029"},
+        {"phrase": "filtr oleju BMW",         "category.id": "4029"},
+        {"phrase": "amortyzator Audi",        "category.id": "4029"},
+        {"phrase": "rozrząd BMW",             "category.id": "4029"},
+        {"phrase": "zawieszenie Audi",        "category.id": "4029"},
+    ]
+
+    for search in searches:
         try:
-            # Use /offers/listing — public search endpoint
             resp = requests.get(
                 f"{ALLEGRO_API}/offers/listing",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Accept": "application/vnd.allegro.public.v1+json",
-                },
-                params={
-                    "phrase":      query_str,
-                    "limit":       limit,
-                    "sort":        "-relevance",
-                },
+                headers=headers,
+                params={**search, "limit": limit, "sort": "-popularity",
+                        "include": "-filters,-sort,-categories"},
                 timeout=20,
             )
-
-            if resp.status_code == 403:
-                # Try without token — some endpoints work as client credentials
-                errors.append(f"{query_str}: HTTP 403 — missing scope allegro:api:sale:offers:read")
-                continue
             if resp.status_code != 200:
-                errors.append(f"{query_str}: HTTP {resp.status_code} — {resp.text[:100]}")
+                errors.append(f"{search['phrase']}: HTTP {resp.status_code} — {resp.text[:150]}")
                 continue
 
             data  = resp.json()
-            items = data.get("items", {}).get("regular", [])
+            items = data.get("items", {}).get("regular", []) + data.get("items", {}).get("promoted", [])
 
             for offer in items:
-                oid       = str(offer.get("id", ""))
-                title_pl  = offer.get("name", "")
+                oid      = str(offer.get("id", ""))
+                title_pl = offer.get("name", "")
                 price_pln = float((offer.get("sellingMode") or {}).get("price", {}).get("amount", 0))
-                images    = offer.get("images", [])
+                images   = offer.get("images", [])
                 image_url = images[0].get("url", "") if images else ""
 
                 # Skip duplicates
@@ -559,21 +566,22 @@ def api_allegro_import():
 
                 # Detect make
                 make = "Universal"
-                for brand in ["BMW","Audi","Toyota","Ford","Volkswagen","Honda","Mercedes","Skoda"]:
+                for brand in ["BMW","Audi","Toyota","Ford","Volkswagen","Honda","Mercedes","Skoda","Opel"]:
                     if brand.lower() in title_pl.lower():
                         make = brand; break
 
                 # Detect category
                 category = "Parts"
+                t = title_pl.lower().replace("ą","a").replace("ę","e").replace("ó","o").replace("ł","l")
                 for key, cat in [("hamul","Brakes"),("tarcz","Brakes"),("klocki","Brakes"),
                                   ("silnik","Engine"),("rozrz","Engine"),("uszczelk","Engine"),
                                   ("filtr","Filters"),("zawieszeni","Suspension"),("amortyz","Suspension"),
-                                  ("elektryczn","Electrical"),("cewk","Electrical"),
-                                  ("chlodnic","Cooling"),("wydech","Exhaust")]:
-                    if key in title_pl.lower().replace("ą","a").replace("ę","e").replace("ó","o"):
+                                  ("elektryczn","Electrical"),("cewk","Electrical"),("zaplonow","Electrical"),
+                                  ("chlodnic","Cooling"),("wydech","Exhaust"),("katalizat","Exhaust")]:
+                    if key in t:
                         category = cat; break
 
-                # Translate
+                # Translate PL→EN
                 title_en = title_pl
                 try:
                     from deep_translator import GoogleTranslator
@@ -592,7 +600,7 @@ def api_allegro_import():
                 added += 1
 
         except Exception as e:
-            errors.append(f"{query_str}: {e}")
+            errors.append(f"{search['phrase']}: {e}")
 
     return jsonify({"success": True, "added": added, "skipped": skipped, "errors": errors})
 
