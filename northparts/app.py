@@ -494,7 +494,7 @@ def allegro_status():
 @login_required
 def api_allegro_import():
     """Scrape Allegro search results for BMW and Audi auto parts."""
-    import re
+    import re, urllib.parse, time
     from html import unescape
 
     d       = request.json or {}
@@ -508,97 +508,72 @@ def api_allegro_import():
         ("klocki hamulcowe BMW",    "Brakes",     "BMW"),
         ("tarcze hamulcowe Audi",   "Brakes",     "Audi"),
         ("filtr oleju BMW",         "Filters",    "BMW"),
-        ("filtr powietrza Audi",    "Filters",    "Audi"),
         ("amortyzator BMW",         "Suspension", "BMW"),
         ("zawieszenie Audi",        "Suspension", "Audi"),
-        ("rozrząd BMW",             "Engine",     "BMW"),
-        ("uszczelka głowicy Audi",  "Engine",     "Audi"),
+        ("rozrzad BMW",             "Engine",     "BMW"),
+        ("filtr powietrza Audi",    "Filters",    "Audi"),
+        ("uszczelka glowicy Audi",  "Engine",     "Audi"),
     ]
 
-    headers_req = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.8",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    req_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept-Language": "pl-PL,pl;q=0.9",
+        "Accept": "text/html,application/xhtml+xml",
     }
 
     for phrase, category, make in searches:
-        if added >= limit * len(searches):
-            break
         try:
-            url = f"https://allegro.pl/listing?string={requests.utils.quote(phrase)}&order=d"
-            resp = requests.get(url, headers=headers_req, timeout=20)
+            encoded = urllib.parse.quote(phrase)
+            url = f"https://allegro.pl/listing?string={encoded}&order=d"
+            resp = requests.get(url, headers=req_headers, timeout=25, allow_redirects=True)
 
             if resp.status_code != 200:
                 errors.append(f"{phrase}: HTTP {resp.status_code}")
                 continue
 
             html = resp.text
-
-            # Extract offer data from JSON-LD or embedded JSON
-            # Try to find __listing_StoreState or similar
-            json_match = re.search(r'window\.__listing_StoreState\s*=\s*(\{.*?\});\s*</script>', html, re.DOTALL)
-            
             offers_found = []
-            
-            if json_match:
+
+            # Method 1: JSON-LD structured data (most reliable)
+            for ld_match in re.finditer(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL):
                 try:
-                    store_data = json.loads(json_match.group(1))
-                    items_raw = (store_data.get("items") or {}).get("elements") or []
-                    for item in items_raw[:limit]:
-                        oid       = str(item.get("id",""))
-                        title_pl  = item.get("name","") or item.get("title","")
-                        price_pln = float((item.get("price") or {}).get("amount", 0))
-                        imgs      = item.get("images") or item.get("image") or []
-                        image_url = imgs[0].get("url","") if isinstance(imgs, list) and imgs else ""
-                        if not image_url and isinstance(imgs, dict):
-                            image_url = imgs.get("original","") or imgs.get("url","")
-                        offers_found.append((oid, title_pl, price_pln, image_url))
-                except Exception as e:
-                    errors.append(f"{phrase} (json parse): {e}")
+                    ld = json.loads(ld_match.group(1))
+                    if ld.get("@type") == "ItemList":
+                        for elem in (ld.get("itemListElement") or [])[:limit]:
+                            item = elem.get("item", {})
+                            raw_url = item.get("url", "") or item.get("@id", "")
+                            oid_match = re.search(r'-(\d{8,})$', raw_url)
+                            if not oid_match:
+                                continue
+                            oid = oid_match.group(1)
+                            title_pl = item.get("name", "")
+                            offer_data = item.get("offers", {}) or {}
+                            price_pln = float(offer_data.get("price", 0) or 0)
+                            img = item.get("image", "")
+                            image_url = img if isinstance(img, str) else (img[0] if isinstance(img, list) and img else "")
+                            offers_found.append((oid, title_pl, price_pln, image_url))
+                except Exception:
+                    pass
 
-            # Fallback: parse JSON-LD structured data
+            # Method 2: regex extract from offer links
             if not offers_found:
-                for match in re.finditer(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL):
-                    try:
-                        ld = json.loads(match.group(1))
-                        if ld.get("@type") == "ItemList":
-                            for elem in (ld.get("itemListElement") or [])[:limit]:
-                                item = elem.get("item", {})
-                                oid = str(item.get("@id","")).split("/")[-1].split("-")[-1]
-                                title_pl = item.get("name","")
-                                price_pln = float((item.get("offers") or {}).get("price", 0))
-                                image_url = item.get("image","") if isinstance(item.get("image"), str) else (item.get("image") or [None])[0] or ""
-                                offers_found.append((oid, title_pl, price_pln, image_url))
-                    except Exception:
-                        pass
+                slugs = re.findall(r'href="https://allegro\.pl/oferta/([\w-]+-(\d{8,}))"', html)
+                seen = set()
+                for slug, oid in slugs[:limit]:
+                    if oid in seen:
+                        continue
+                    seen.add(oid)
+                    offers_found.append((oid, phrase, 0.0, ""))
 
-            # Fallback 2: regex scrape offer cards
-            if not offers_found:
-                # Find offer IDs from URLs
-                ids = re.findall(r'/oferta/([\w-]+-([0-9]{8,}))', html)
-                titles = re.findall(r'aria-label="([^"]{10,120})"[^>]*>', html)
-                prices = re.findall(r'([0-9]+[\s,][0-9]{2})\s*z[łl]', html)
-
-                for i, (slug, oid) in enumerate(ids[:limit]):
-                    title_pl  = unescape(titles[i]) if i < len(titles) else slug.replace("-"," ")
-                    price_str = prices[i].replace(" ","").replace(",",".") if i < len(prices) else "0"
-                    try:
-                        price_pln = float(price_str)
-                    except Exception:
-                        price_pln = 0.0
-                    offers_found.append((oid, title_pl, price_pln, ""))
-
-            for oid, title_pl, price_pln, image_url in offers_found:
+            for oid, title_pl, price_pln, image_url in offers_found[:limit]:
                 if not oid or not title_pl:
                     continue
-
-                existing = query("SELECT id FROM products WHERE oem_no=%s AND source='allegro'",
-                                 (oid,), fetch="one")
-                if existing:
+                # check duplicate using execute directly
+                rows = query("SELECT id FROM products WHERE oem_no=%s AND source='allegro'", (oid,), fetch="one")
+                if rows:
                     skipped += 1
                     continue
 
-                # Translate PL→EN
                 title_en = title_pl
                 try:
                     from deep_translator import GoogleTranslator
@@ -607,18 +582,21 @@ def api_allegro_import():
                     pass
 
                 base_cad = round(price_pln * pln_cad, 2)
-
-                execute("""INSERT INTO products
-                           (category,make,title,description,compat,base_price,icon,oem_no,
-                            active,source,allegro_url,image_url,image_local)
-                           VALUES(%s,%s,%s,%s,%s,%s,'🔧',%s,TRUE,'allegro',%s,%s,'')""",
-                        (category, make, title_en, "", "", base_cad, oid,
-                         f"https://allegro.pl/oferta/{oid}", image_url))
+                execute(
+                    """INSERT INTO products
+                       (category,make,title,description,compat,base_price,icon,oem_no,
+                        active,source,allegro_url,image_url,image_local)
+                       VALUES(%s,%s,%s,%s,%s,%s,'🔧',%s,TRUE,'allegro',%s,%s,'')""",
+                    (category, make, title_en, "", "", base_cad, oid,
+                     f"https://allegro.pl/oferta/{oid}", image_url)
+                )
                 added += 1
 
-        except Exception as e:
+            time.sleep(0.5)  # be polite
+
+        except Exception as exc:
             import traceback
-            errors.append(f"{phrase}: {e}")
+            errors.append(f"{phrase}: {exc}")
 
     return jsonify({"success": True, "added": added, "skipped": skipped, "errors": errors})
 
