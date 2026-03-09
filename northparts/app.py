@@ -102,6 +102,11 @@ def init_db():
                     status      TEXT NOT NULL DEFAULT 'New',
                     notes       TEXT NOT NULL DEFAULT '',
                     created_at  TIMESTAMP NOT NULL DEFAULT NOW())""")
+        # Step 1b: Migrate — add new columns if not exist (safe on repeat runs)
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS image_url TEXT NOT NULL DEFAULT ''")
+                cur.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS image_local TEXT NOT NULL DEFAULT ''")
         # Step 2: Seed settings
         with conn:
             with conn.cursor() as cur:
@@ -170,6 +175,9 @@ def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get("admin_logged_in"):
+            # Return JSON for API routes, redirect for page routes
+            if request.path.startswith("/api/") or request.is_json:
+                return jsonify({"error": "Not logged in"}), 401
             return redirect(url_for("admin_login"))
         return f(*args, **kwargs)
     return decorated
@@ -494,8 +502,14 @@ def allegro_status():
 @login_required
 def api_allegro_import():
     """Scrape Allegro search results for BMW and Audi auto parts."""
+    try:
+        return _do_allegro_import()
+    except Exception as e:
+        import traceback
+        return jsonify({"success": False, "error": str(e), "trace": traceback.format_exc()[-500:]}), 500
+
+def _do_allegro_import():
     import re, urllib.parse, time
-    from html import unescape
 
     d       = request.json or {}
     pln_cad = float(get_setting("pln_to_cad", 0.34))
@@ -505,14 +519,14 @@ def api_allegro_import():
     errors  = []
 
     searches = [
-        ("klocki hamulcowe BMW",    "Brakes",     "BMW"),
-        ("tarcze hamulcowe Audi",   "Brakes",     "Audi"),
-        ("filtr oleju BMW",         "Filters",    "BMW"),
-        ("amortyzator BMW",         "Suspension", "BMW"),
-        ("zawieszenie Audi",        "Suspension", "Audi"),
-        ("rozrzad BMW",             "Engine",     "BMW"),
-        ("filtr powietrza Audi",    "Filters",    "Audi"),
-        ("uszczelka glowicy Audi",  "Engine",     "Audi"),
+        ("klocki hamulcowe BMW",   "Brakes",     "BMW"),
+        ("tarcze hamulcowe Audi",  "Brakes",     "Audi"),
+        ("filtr oleju BMW",        "Filters",    "BMW"),
+        ("amortyzator BMW",        "Suspension", "BMW"),
+        ("zawieszenie Audi",       "Suspension", "Audi"),
+        ("rozrzad BMW",            "Engine",     "BMW"),
+        ("filtr powietrza Audi",   "Filters",    "Audi"),
+        ("cewka zaplonowa BMW",    "Electrical", "BMW"),
     ]
 
     req_headers = {
@@ -534,43 +548,40 @@ def api_allegro_import():
             html = resp.text
             offers_found = []
 
-            # Method 1: JSON-LD structured data (most reliable)
+            # JSON-LD structured data
             for ld_match in re.finditer(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL):
                 try:
                     ld = json.loads(ld_match.group(1))
                     if ld.get("@type") == "ItemList":
                         for elem in (ld.get("itemListElement") or [])[:limit]:
                             item = elem.get("item", {})
-                            raw_url = item.get("url", "") or item.get("@id", "")
-                            oid_match = re.search(r'-(\d{8,})$', raw_url)
-                            if not oid_match:
+                            raw_url = item.get("url","") or item.get("@id","")
+                            oid_m = re.search(r'-(\d{8,})$', raw_url)
+                            if not oid_m:
                                 continue
-                            oid = oid_match.group(1)
-                            title_pl = item.get("name", "")
-                            offer_data = item.get("offers", {}) or {}
-                            price_pln = float(offer_data.get("price", 0) or 0)
-                            img = item.get("image", "")
+                            oid      = oid_m.group(1)
+                            title_pl = item.get("name","")
+                            price_pln = float((item.get("offers") or {}).get("price", 0) or 0)
+                            img = item.get("image","")
                             image_url = img if isinstance(img, str) else (img[0] if isinstance(img, list) and img else "")
                             offers_found.append((oid, title_pl, price_pln, image_url))
                 except Exception:
                     pass
 
-            # Method 2: regex extract from offer links
+            # Fallback: regex href
             if not offers_found:
-                slugs = re.findall(r'href="https://allegro\.pl/oferta/([\w-]+-(\d{8,}))"', html)
                 seen = set()
-                for slug, oid in slugs[:limit]:
-                    if oid in seen:
-                        continue
+                for slug, oid in re.findall(r'href="https://allegro\.pl/oferta/([\w-]+-(?P<id>\d{8,}))"', html):
+                    if oid in seen: continue
                     seen.add(oid)
                     offers_found.append((oid, phrase, 0.0, ""))
+                    if len(offers_found) >= limit:
+                        break
 
             for oid, title_pl, price_pln, image_url in offers_found[:limit]:
                 if not oid or not title_pl:
                     continue
-                # check duplicate using execute directly
-                rows = query("SELECT id FROM products WHERE oem_no=%s AND source='allegro'", (oid,), fetch="one")
-                if rows:
+                if query("SELECT id FROM products WHERE oem_no=%s AND source='allegro'", (oid,), fetch="one"):
                     skipped += 1
                     continue
 
@@ -592,10 +603,9 @@ def api_allegro_import():
                 )
                 added += 1
 
-            time.sleep(0.5)  # be polite
+            time.sleep(0.5)
 
         except Exception as exc:
-            import traceback
             errors.append(f"{phrase}: {exc}")
 
     return jsonify({"success": True, "added": added, "skipped": skipped, "errors": errors})
