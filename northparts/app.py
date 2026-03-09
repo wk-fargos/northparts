@@ -467,16 +467,28 @@ def allegro_callback():
     if not code:
         return "Error: no code returned by Allegro", 400
 
-    resp = requests.post(f"{ALLEGRO_AUTH}/auth/oauth/token",
-                         auth=(ALLEGRO_CLIENT_ID, ALLEGRO_CLIENT_SECRET),
-                         data={"grant_type":"authorization_code",
-                               "code": code,
-                               "redirect_uri": ALLEGRO_REDIRECT})
-    if resp.status_code != 200:
-        return f"Error getting token from Allegro: {resp.status_code} — {resp.text}", 400
+    try:
+        resp = requests.post(
+            f"{ALLEGRO_AUTH}/auth/oauth/token",
+            auth=(ALLEGRO_CLIENT_ID, ALLEGRO_CLIENT_SECRET),
+            data={"grant_type": "authorization_code",
+                  "code": code,
+                  "redirect_uri": ALLEGRO_REDIRECT},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return f"Allegro token error {resp.status_code}: {resp.text}", 400
 
-    allegro_save_token(resp.json())
-    return redirect("/admin/settings?allegro=connected")
+        token_data = resp.json()
+        if "access_token" not in token_data:
+            return f"No access_token in response: {token_data}", 400
+
+        allegro_save_token(token_data)
+        return redirect("/admin/settings?allegro=connected")
+
+    except Exception as e:
+        import traceback
+        return f"Exception in callback: {e}\n\n{traceback.format_exc()}", 500
 
 @app.route("/allegro/status")
 @login_required
