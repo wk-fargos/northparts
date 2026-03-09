@@ -8,7 +8,7 @@ NorthParts — Flask + PostgreSQL
 На Render всё настраивается автоматически через переменные окружения.
 """
 
-import os, json, hashlib
+import os, json, hashlib, requests
 from datetime import datetime
 from functools import wraps
 from flask import (Flask, render_template, request, jsonify,
