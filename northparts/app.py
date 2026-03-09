@@ -460,13 +460,12 @@ def allegro_connect():
 def allegro_callback():
     """Handle OAuth2 callback from Allegro."""
     code  = request.args.get("code")
-    state = request.args.get("state")
-    saved_state = get_setting("allegro_oauth_state")
+    error = request.args.get("error")
 
+    if error:
+        return f"Allegro authorization error: {error}", 400
     if not code:
         return "Error: no code returned by Allegro", 400
-    if state != saved_state:
-        return "Error: state mismatch (CSRF check failed)", 400
 
     resp = requests.post(f"{ALLEGRO_AUTH}/auth/oauth/token",
                          auth=(ALLEGRO_CLIENT_ID, ALLEGRO_CLIENT_SECRET),
@@ -474,7 +473,7 @@ def allegro_callback():
                                "code": code,
                                "redirect_uri": ALLEGRO_REDIRECT})
     if resp.status_code != 200:
-        return f"Error getting token: {resp.text}", 400
+        return f"Error getting token from Allegro: {resp.status_code} — {resp.text}", 400
 
     allegro_save_token(resp.json())
     return redirect("/admin/settings?allegro=connected")
